@@ -1,0 +1,78 @@
+name: Build & Release APK and AAB
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK and AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build Debug AAB (Android App Bundle)
+        run: ./gradlew bundleDebug --no-daemon
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p output-builds
+          cp app/build/outputs/apk/debug/app-debug.apk output-builds/Cleankr-v1.0-debug.apk
+          cp app/build/outputs/bundle/debug/app-debug.aab output-builds/Cleankr-v1.0-debug.aab
+          echo "Builds prepared successfully:"
+          ls -la output-builds/
+
+      - name: Upload Artifacts (Direct Download via GitHub Actions)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cleankr-APK-and-AAB-Builds
+          path: output-builds/
+          retention-days: 90
+
+      - name: Create GitHub Release (Direct Download via Releases page)
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: v1.0.0
+          name: "Cleankr App v1.0.0 (APK & AAB Direct Download)"
+          body: |
+            ### 📱 Cleankr Customer Android App
+            
+            Sabhi Android devices (Android 7.0 to 14/15/16) ke liye ready build.
+            
+            #### ⬇️ Download Links (Neeche Assets section se download karein):
+            1. **`Cleankr-v1.0-debug.apk`** - Isko sidhe apne phone me download karke install karein.
+            2. **`Cleankr-v1.0-debug.aab`** - Google Play Store par app publish karne ke liye bundle file.
+            
+            ---
+            #### 📲 Phone Me Install Kaise Karein:
+            1. Phone ke browser me `Cleankr-v1.0-debug.apk` par tap karke download karein.
+            2. Download hone ke baad file par tap karke **Install** select karein.
+            3. Agar phone me *"Install from unknown sources"* ya *"Install unknown apps"* ka prompt aaye to permission **Allow** karein.
+          files: |
+            output-builds/Cleankr-v1.0-debug.apk
+            output-builds/Cleankr-v1.0-debug.aab
+          draft: false
+          prerelease: false
+        continue-on-error: true
