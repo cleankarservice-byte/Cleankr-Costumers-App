@@ -17,30 +17,30 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
           cache: 'gradle'
 
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Restore Keystore and SDK Licenses
+      - name: Restore Keystore and Accept SDK Licenses
         run: |
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
             echo "Decoded debug.keystore from base64 successfully"
           fi
           touch .env
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license" || true
+          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license" || true
+          echo -e "\n84831b9409646a32ee44093a1807fb826e2d9686" >> "$ANDROID_HOME/licenses/android-sdk-preview-license" || true
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Build Debug AAB (Android App Bundle)
-        run: ./gradlew bundleDebug --no-daemon --stacktrace
+      - name: Build Debug APK and AAB
+        run: ./gradlew assembleDebug bundleDebug --no-daemon --no-configuration-cache --stacktrace
 
       - name: Prepare Artifacts
         run: |
@@ -84,4 +84,5 @@ jobs:
             output-builds/Cleankr-v1.0-debug.aab
           draft: false
           prerelease: false
+          overwrite: true
         continue-on-error: true
