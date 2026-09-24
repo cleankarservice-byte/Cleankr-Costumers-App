@@ -1,0 +1,6 @@
+{
+  "name": "Cleankr",
+  "description": "Professional Home Cleaning & Maintenance Services Platform for Customers",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
