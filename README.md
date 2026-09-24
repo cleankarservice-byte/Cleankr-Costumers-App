@@ -6,25 +6,29 @@ Professional native Android customer app for **Cleankr** built with Kotlin, Jetp
 
 ## 📥 Direct Download APK & AAB (GitHub Se Download Kaise Karein)
 
-GitHub se sidhe **APK** aur **AAB** download karne ke 2 aasan tareeqe hain:
+Aap bina kisi jhanjhat ke **3 aasan tareeqon** se APK aur AAB download kar sakte hain:
 
-### Tareeqa 1: GitHub Releases (Sabse Aasan - 1 Click Download)
-1. Repository ke right side me **"Releases"** section par click karein (ya URL me `/releases` open karein).
-2. Latest Release (**Cleankr App v1.0.0**) par jayein.
-3. **Assets** ke neeche aapko 2 files milengi:
-   - 📱 **`Cleankr-v1.0-debug.apk`**: Apne Android phone me direct install karne ke liye download karein.
-   - 📦 **`Cleankr-v1.0-debug.aab`**: Google Play Console par upload/publish karne ke liye.
+### ⭐ Tareeqa 1: Repository Ke `releases` Folder Se Direct Download (Sabse Fast & Bina Kuch Kiye!)
+Aapko kisi build ya Actions ka wait bhi nahi karna padega, ready APK aur AAB repository me hi uplabdh hain:
+1. Is repository ke file list me **`releases`** folder par tap karein.
+2. **`Cleankr-v1.0.apk`** par click karein aur **"Download"** ya **"View Raw"** dabayein — APK sidhe aapke phone me download ho jayegi!
+3. Agar Play Store bundle chahiye to **`Cleankr-v1.0.aab`** download karein.
 
 ---
 
-### Tareeqa 2: GitHub Actions (Automated CI/CD Builds)
-1. GitHub repository ke top menu me **"Actions"** tab par click karein.
-2. Left side me **"Build & Release APK and AAB"** workflow select karein.
-3. Sabse upar latest run (green checkmark ✅) par click karein.
-4. Page ke neeche scroll karein jahan **"Artifacts"** likha hoga.
-5. **`Cleankr-APK-and-AAB-Builds`** par click karein — dono APK aur AAB zip format me download ho jayengi.
+### Tareeqa 2: GitHub Releases Page (1-Click Download)
+1. Repository page par right side me **"Releases"** (ya `v1.0.0`) par click karein.
+2. **Assets** section me:
+   - 📱 **`Cleankr-v1.0-debug.apk`** (Apne phone me direct install karne ke liye)
+   - 📦 **`Cleankr-v1.0-debug.aab`** (Play Console bundle)
 
-> **Note:** Agar aapko new build trigger karna ho to GitHub Actions tab me **"Run workflow"** button dabayein, 2 minute me latest APK & AAB ready ho jayega!
+---
+
+### Tareeqa 3: GitHub Actions (Automated CI/CD Builds)
+GitHub Actions workflow me Android SDK configuration fix kar diya gaya hai (ab koi *package tools* error nahi aayega):
+1. Top menu me **"Actions"** tab par tap karein.
+2. **"Build & Release APK and AAB"** workflow automatically clean build karega (Green Tick ✅).
+3. Build complete hone par **Artifacts** me jakar **`Cleankr-APK-and-AAB-Builds`** download kar sakte hain.
 
 ---
 

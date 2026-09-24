@@ -22,18 +22,13 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+          cache: 'gradle'
 
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Build Debug AAB (Android App Bundle)
-        run: ./gradlew bundleDebug --no-daemon
+      - name: Build Debug APK and AAB
+        run: ./gradlew assembleDebug bundleDebug --no-daemon --stacktrace
 
       - name: Prepare Artifacts
         run: |
