@@ -1,9 +1,12 @@
 package com.example.core.repository
 
+import android.util.Log
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.data.local.BookingDao
 import com.example.core.data.local.BookingEntity
 import com.example.core.data.local.NotificationDao
 import com.example.core.data.local.NotificationEntity
+import com.example.core.data.session.SessionManager
 import com.example.core.model.Address
 import com.example.core.model.Booking
 import com.example.core.model.BookingStatus
@@ -13,8 +16,10 @@ import com.example.core.model.PaymentStatus
 import com.example.core.model.ServiceCategory
 import com.example.core.model.ServiceItem
 import com.example.core.model.ServiceVariant
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -24,8 +29,11 @@ class BookingRepository(
     private val bookingDao: BookingDao,
     private val notificationDao: NotificationDao,
     private val slotRepository: SlotRepository,
-    private val serviceRepository: ServiceRepository
+    private val serviceRepository: ServiceRepository,
+    private val firebaseBackend: FirebaseBackendService? = null,
+    private val sessionManager: SessionManager? = null
 ) {
+    private val tag = "BookingRepo"
 
     val allBookings: Flow<List<Booking>> = bookingDao.getAllBookings().map { list ->
         list.map { it.toDomain() }
@@ -37,10 +45,34 @@ class BookingRepository(
 
     fun getBookingById(id: String): Flow<Booking?> = bookingDao.getBookingById(id).map { it?.toDomain() }
 
+    /**
+     * Connect real-time Firestore synchronization for the authenticated customer.
+     * Receives partner assignment, live tracking status updates from Admin Panel & Partner App.
+     */
+    fun startRealtimeSync(customerId: String, scope: CoroutineScope) {
+        val fb = firebaseBackend ?: return
+        if (!fb.isFirebaseConfigured()) return
+
+        Log.d(tag, "Starting real-time Firebase sync for customer: $customerId")
+        scope.launch {
+            try {
+                fb.observeCustomerBookings(customerId).collect { backendBookings ->
+                    if (backendBookings.isNotEmpty()) {
+                        bookingDao.insertBookings(backendBookings.map { BookingEntity.fromDomain(it) })
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Real-time sync error: ${e.message}")
+            }
+        }
+    }
+
     suspend fun ensureInitialData() {
+        // Only seed fallback initial demo data if database is completely empty
         val initialList = listOf(
             BookingEntity(
                 id = "CK-2026-8192",
+                customerId = "cust_001",
                 serviceId = "srv_bath_intense",
                 serviceTitle = "Bathroom Intense Clean",
                 categoryName = ServiceCategory.BATHROOM.name,
@@ -71,12 +103,14 @@ class BookingRepository(
                 partnerMaskedPhone = "+91 80 4719 3200",
                 startPin = "5914",
                 createdAt = System.currentTimeMillis() - 7200000,
+                updatedAt = System.currentTimeMillis() - 7200000,
                 cancellationReason = null,
                 userRating = null,
                 userReview = null
             ),
             BookingEntity(
                 id = "CK-2026-6411",
+                customerId = "cust_001",
                 serviceId = "srv_flat_deep",
                 serviceTitle = "Full Home Deep Cleaning",
                 categoryName = ServiceCategory.FLAT.name,
@@ -107,6 +141,7 @@ class BookingRepository(
                 partnerMaskedPhone = "+91 80 4719 3200",
                 startPin = "1182",
                 createdAt = System.currentTimeMillis() - 86400000 * 6,
+                updatedAt = System.currentTimeMillis() - 86400000 * 6,
                 cancellationReason = null,
                 userRating = 5.0f,
                 userReview = "Spotless cleaning! The team was on time and very thorough."
@@ -117,9 +152,10 @@ class BookingRepository(
 
     /**
      * Server-side creation and validation logic:
-     * - Checks that slot is available
-     * - Recalculates total price strictly based on official ServiceRepository data (customer cannot manipulate)
-     * - Generates unique Cleankr Booking ID and random 4-digit start OTP
+     * - Checks slot availability
+     * - Recalculates total price strictly based on official ServiceRepository data (never trusting client-modified price)
+     * - Connects to shared Firebase ecosystem if configured
+     * - Never displays "Booking confirmed" until the backend confirms successful creation
      */
     suspend fun createBooking(
         service: ServiceItem,
@@ -138,13 +174,18 @@ class BookingRepository(
             return Result.failure(IllegalStateException("Selected time slot is no longer available. Please select another slot."))
         }
 
-        // 2. Server-side price calculation
+        // 2. Authoritative price recalculation (protects against client manipulation)
         val addOns = service.addOns.filter { selectedAddOnNames.contains(it.name) }
         val addOnsTotal = addOns.sumOf { it.price }
         val servicePrice = variant.price * quantity.coerceAtLeast(1)
         val calculatedTotal = servicePrice + addOnsTotal
 
-        // 3. Generate Booking
+        // 3. Current authenticated customer context
+        val customerId = sessionManager?.currentUser?.value?.id
+            ?: firebaseBackend?.currentCustomerId
+            ?: "cust_001"
+
+        // 4. Generate unique Booking ID & customer security PIN
         val randomNum = (1000..9999).random()
         val bookingId = "CK-2026-$randomNum"
         val startPin = (1000..9999).random().toString()
@@ -153,6 +194,7 @@ class BookingRepository(
 
         val newBooking = Booking(
             id = bookingId,
+            customerId = customerId,
             serviceId = service.id,
             serviceTitle = service.title,
             category = service.category,
@@ -168,15 +210,28 @@ class BookingRepository(
             instructions = instructions,
             paymentMethod = paymentMethod,
             paymentStatus = paymentStatus,
-            status = BookingStatus.BOOKED,
-            partner = null,
+            status = BookingStatus.BOOKED, // Initial status strictly controlled by backend business rules
+            partner = null, // Partner can only be assigned by Admin / Partner App
             startPin = startPin,
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
         )
 
+        // 5. Backend synchronization (Enterprise Cleankr Ecosystem)
+        if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
+            val backendResult = firebaseBackend.createBookingInSharedBackend(newBooking)
+            if (backendResult.isFailure) {
+                // Must not confirm if backend rejects
+                val err = backendResult.exceptionOrNull() ?: Exception("Failed to sync booking to Cleankr backend.")
+                Log.e(tag, "Backend booking failed: ${err.message}")
+                return Result.failure(err)
+            }
+        }
+
+        // 6. Cache into Room database for offline accessibility & fast UI updates
         bookingDao.insertBooking(BookingEntity.fromDomain(newBooking))
 
-        // Trigger Notification
+        // In-app notification
         notificationDao.insertNotification(
             NotificationEntity(
                 id = "notif_" + UUID.randomUUID().toString().take(8),
@@ -193,53 +248,28 @@ class BookingRepository(
     }
 
     /**
-     * Advance tracking status simulation (for demonstration & live preview)
+     * Partner status transitions must be reflected from trusted backend data.
+     * Customer App is strictly forbidden from directly writing partner status in production.
      */
     suspend fun advanceStatus(bookingId: String, nextStatus: BookingStatus) {
+        if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
+            Log.w(tag, "Customer App cannot directly write partner status in production ecosystem.")
+            return
+        }
+
+        // Local demo/offline fallback only
         bookingDao.updateBookingStatus(bookingId, nextStatus.name)
-
-        val partner = if (nextStatus == BookingStatus.ASSIGNED || nextStatus == BookingStatus.PARTNER_ACCEPTED ||
-            nextStatus == BookingStatus.ON_THE_WAY || nextStatus == BookingStatus.ARRIVED || nextStatus == BookingStatus.STARTED) {
-            PartnerInfo(
-                id = "prt_409",
-                name = "Suresh Kumar",
-                rating = 4.92f,
-                jobsCompleted = 214,
-                maskedPhone = "+91 80 4719 3200"
-            )
-        } else null
-
-        if (partner != null) {
-            // Update partner details if not yet saved
-            val entity = bookingDao.getBookingById(bookingId)
-            // Just update status
-        }
-
-        val msg = when (nextStatus) {
-            BookingStatus.ASSIGNED -> "A verified Cleankr Partner has been assigned to your booking."
-            BookingStatus.PARTNER_ACCEPTED -> "Partner Suresh Kumar accepted your service request."
-            BookingStatus.ON_THE_WAY -> "Partner Suresh Kumar is on the way to your address."
-            BookingStatus.ARRIVED -> "Partner has arrived at your location. Please share your Start PIN to begin."
-            BookingStatus.STARTED -> "Your cleaning service has started!"
-            BookingStatus.COMPLETED -> "Service completed! Please rate your experience."
-            BookingStatus.CANCELLED -> "Your booking has been cancelled."
-            else -> "Booking status updated to ${nextStatus.displayName}."
-        }
-
-        notificationDao.insertNotification(
-            NotificationEntity(
-                id = "notif_" + UUID.randomUUID().toString().take(8),
-                title = "Booking Update: ${nextStatus.displayName}",
-                message = msg,
-                timestamp = System.currentTimeMillis(),
-                type = "PARTNER",
-                isRead = false,
-                bookingId = bookingId
-            )
-        )
     }
 
     suspend fun cancelBooking(bookingId: String, reason: String): Result<Unit> {
+        val customerId = sessionManager?.currentUser?.value?.id ?: "cust_001"
+        if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
+            val backendResult = firebaseBackend.cancelBookingInSharedBackend(bookingId, customerId, reason)
+            if (backendResult.isFailure) {
+                return backendResult
+            }
+        }
+
         bookingDao.cancelBooking(bookingId, reason)
         notificationDao.insertNotification(
             NotificationEntity(
@@ -260,6 +290,14 @@ class BookingRepository(
         if (!isValid) {
             return Result.failure(IllegalStateException("Selected slot is no longer available."))
         }
+
+        if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
+            val backendResult = firebaseBackend.rescheduleBookingInSharedBackend(bookingId, newDate, newSlot)
+            if (backendResult.isFailure) {
+                return backendResult
+            }
+        }
+
         bookingDao.rescheduleBooking(bookingId, newDate, newSlot)
         notificationDao.insertNotification(
             NotificationEntity(
@@ -276,6 +314,17 @@ class BookingRepository(
     }
 
     suspend fun submitRating(bookingId: String, rating: Float, review: String) {
+        val customerId = sessionManager?.currentUser?.value?.id ?: "cust_001"
         bookingDao.rateBooking(bookingId, rating, review)
+
+        if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
+            firebaseBackend.submitRatingInSharedBackend(
+                bookingId = bookingId,
+                customerId = customerId,
+                serviceId = "",
+                rating = rating,
+                review = review
+            )
+        }
     }
 }

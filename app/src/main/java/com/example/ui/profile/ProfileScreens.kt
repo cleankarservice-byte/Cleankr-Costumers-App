@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
@@ -56,12 +57,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.config.CleankrLegalConfig
 import com.example.core.data.session.SessionManager
 import com.example.ui.auth.AuthViewModel
 import com.example.ui.components.CleankrButton
@@ -91,6 +94,7 @@ fun ProfileScreen(
     onNavigateToPolicies: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     val currentUser by sessionManager.currentUser.collectAsState()
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showSetPinDialog by remember { mutableStateOf(false) }
@@ -154,6 +158,19 @@ fun ProfileScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = CleankrMuted
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            color = CleankrTealContainer,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "Role: Customer",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CleankrTealDark,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
 
                     IconButton(
@@ -205,9 +222,9 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Help & Policies Section
+            // Support & Help Section
             Text(
-                text = "Support & Legal",
+                text = "Support & Help",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = CleankrSlate
@@ -225,21 +242,87 @@ fun ProfileScreen(
                         icon = Icons.Default.Headphones,
                         title = "Help & Customer Support",
                         subtitle = "FAQs, tickets, order assistance, and live hotline",
+                        modifier = Modifier.testTag("help_support_item"),
                         onClick = onNavigateToSupport
                     )
-                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
-                    ProfileMenuRow(
-                        icon = Icons.Default.Policy,
-                        title = "Cancellation & Refund Policy",
-                        subtitle = "Transparent 100% free cancellation rules",
-                        onClick = { onNavigateToPolicies("cancellation") }
-                    )
-                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Privacy & Legal Section
+            Text(
+                text = "Privacy & Legal",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = CleankrSlate
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column {
+                    // 1. Privacy Policy
                     ProfileMenuRow(
                         icon = Icons.Default.Security,
-                        title = "Privacy Policy & Terms",
-                        subtitle = "Data security & partner safety guidelines",
-                        onClick = { onNavigateToPolicies("privacy") }
+                        title = "Privacy Policy",
+                        subtitle = "Published privacy policy & personal data protection",
+                        modifier = Modifier.testTag("privacy_policy_item"),
+                        onClick = {
+                            CleankrLegalConfig.openWebUrl(
+                                context = context,
+                                url = CleankrLegalConfig.PRIVACY_POLICY_URL
+                            )
+                        }
+                    )
+                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
+
+                    // 2. Terms & Conditions
+                    ProfileMenuRow(
+                        icon = Icons.Default.Description,
+                        title = "Terms & Conditions",
+                        subtitle = "Service agreements, fixed pricing rules & user terms",
+                        modifier = Modifier.testTag("terms_conditions_item"),
+                        onClick = {
+                            val url = CleankrLegalConfig.TERMS_CONDITIONS_URL
+                            if (!url.isNullOrBlank()) {
+                                CleankrLegalConfig.openWebUrl(context, url)
+                            } else {
+                                onNavigateToPolicies("terms")
+                            }
+                        }
+                    )
+                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
+
+                    // 3. Refund & Cancellation Policy
+                    ProfileMenuRow(
+                        icon = Icons.Default.Policy,
+                        title = "Refund & Cancellation Policy",
+                        subtitle = "Transparent 100% free cancellation & refund guidelines",
+                        modifier = Modifier.testTag("refund_cancellation_item"),
+                        onClick = {
+                            val url = CleankrLegalConfig.REFUND_CANCELLATION_URL
+                            if (!url.isNullOrBlank()) {
+                                CleankrLegalConfig.openWebUrl(context, url)
+                            } else {
+                                onNavigateToPolicies("cancellation")
+                            }
+                        }
+                    )
+                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
+
+                    // 4. Account Deletion
+                    ProfileMenuRow(
+                        icon = Icons.Default.DeleteForever,
+                        iconColor = CleankrRed,
+                        title = "Account Deletion",
+                        subtitle = "Permanently remove your account, data and history",
+                        modifier = Modifier.testTag("account_deletion_item"),
+                        onClick = onNavigateToAccountDeletion
                     )
                 }
             }
@@ -259,15 +342,8 @@ fun ProfileScreen(
                         iconColor = CleankrNavyDark,
                         title = "Logout",
                         subtitle = "Sign out from this device",
+                        modifier = Modifier.testTag("logout_item"),
                         onClick = { showLogoutDialog = true }
-                    )
-                    HorizontalDivider(color = CleankrBorder.copy(alpha = 0.5f))
-                    ProfileMenuRow(
-                        icon = Icons.Default.DeleteForever,
-                        iconColor = CleankrRed,
-                        title = "Delete Account",
-                        subtitle = "Permanently remove your account and personal data",
-                        onClick = onNavigateToAccountDeletion
                     )
                 }
             }
@@ -415,10 +491,11 @@ fun ProfileMenuRow(
     iconColor: Color = CleankrTeal,
     title: String,
     subtitle: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -494,7 +571,7 @@ fun AccountDeletionScreen(
                     Column {
                         Text(text = "Irreversible Action", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrRed)
                         Text(
-                            text = "Deleting your account will erase your booking history, saved addresses, active credits, and profile data from Cleankr servers.",
+                            text = "Deleting your account permanently deactivates your credentials and erases saved addresses, profile data, and active credits. Completed payment invoices and statutory records are securely retained in compliance with applicable tax, accounting, and dispute retention regulations under Cleankr's published Privacy Policy.",
                             style = MaterialTheme.typography.bodySmall,
                             color = CleankrRed
                         )
@@ -565,8 +642,12 @@ fun PoliciesScreen(
     policyType: String,
     onBackClick: () -> Unit
 ) {
-    val isCancellation = policyType == "cancellation"
-    val title = if (isCancellation) "Cancellation & Refund Policy" else "Privacy Policy & Terms"
+    val context = LocalContext.current
+    val title = when (policyType) {
+        "cancellation" -> "Refund & Cancellation Policy"
+        "terms" -> "Terms & Conditions"
+        else -> "Privacy Policy"
+    }
 
     Column(
         modifier = Modifier
@@ -581,6 +662,47 @@ fun PoliciesScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            if (policyType == "privacy") {
+                Surface(
+                    color = CleankrTealContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = CleankrTealDark,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Official Published Policy",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = CleankrTealDark
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Cleankr respects your personal data. View our full published policy document online.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = CleankrNavyDark
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        CleankrButton(
+                            text = "Open Online Policy Document",
+                            onClick = {
+                                CleankrLegalConfig.openWebUrl(context, CleankrLegalConfig.PRIVACY_POLICY_URL)
+                            },
+                            modifier = Modifier.testTag("open_online_privacy_policy_btn")
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -588,64 +710,207 @@ fun PoliciesScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    if (isCancellation) {
-                        Text(text = "1. Free Cancellation Window", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "You can cancel any booking free of charge up to 2 hours prior to the scheduled service time slot. 100% of the paid amount will be refunded directly to your payment source.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
+                    when (policyType) {
+                        "cancellation" -> {
+                            Text(text = "1. Free Cancellation Window", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "You can cancel any booking free of charge up to 2 hours prior to the scheduled service time slot. 100% of the paid amount will be refunded directly to your payment source.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(text = "2. Late Cancellation Fee", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "If a cancellation is requested within 2 hours of the scheduled time or after a partner has been dispatched, a nominal partner convenience fee of ₹100 is deducted to compensate our travel professional.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "2. Late Cancellation Fee", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "If a cancellation is requested within 2 hours of the scheduled time or after a partner has been dispatched, a nominal partner convenience fee of ₹100 is deducted to compensate our travel professional.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(text = "3. Refund Processing Timeline", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "UPI refunds are processed instantly. Credit/Debit card refunds typically reflect in your account within 3 to 5 banking days.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
-                    } else {
-                        Text(text = "1. Data Collection & Usage", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Cleankr collects your mobile number and service address solely to fulfill cleaning appointments. We never sell your personal information or spam you with unauthorized third-party marketing.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "3. Refund Processing Timeline", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "UPI refunds are processed instantly. Credit/Debit card refunds typically reflect in your account within 3 to 5 banking days.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+                        }
+                        "terms" -> {
+                            Text(text = "1. Transparent Fixed Pricing", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "All bathroom cleaning packages have fixed standardized rates (Intense: ₹450, Move-in: ₹550, Stain Removal: ₹700). Partners are strictly prohibited from demanding cash tips or hidden charges.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(text = "2. Masked Calling & Safety", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "For your privacy, calls between customers and service partners are routed via virtual proxy numbers. Your real personal phone number is never disclosed to service partners.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "2. 7-Day Service Guarantee", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "If you are unsatisfied with any aspect of the cleaning, report it via Customer Support within 7 days for a free re-cleaning or proportionate refund.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
 
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(text = "3. Background Verified Staff", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Every Cleankr professional undergoes Aadhaar/KYC identity checks, police background verification, and formal hygiene training.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate,
-                            lineHeight = 18.sp
-                        )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "3. Verified Partners & Safety", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "All service partners are background-verified and adhere to Cleankr safety standards. Customers must provide access to running water and electricity for high-pressure machine operations.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+                        }
+                        else -> {
+                            Text(text = "1. Mobile Number & Account Verification", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Your mobile phone number is collected to authenticate your customer account via one-time passcodes (OTP), prevent unauthorized logins, and protect your bookings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "2. Customer Profile Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Your name and email address are used to personalize service confirmations, issue tax invoices, and facilitate account recovery.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "3. Booking & Scheduling Data", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Service selections, chosen time slots, specialized cleaning add-ons, and customer special instructions are shared strictly with the assigned service professional to deliver your requested service.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "4. Address & Location Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Your building flat number, street address, and landmarks are used solely for partner route dispatch and navigation during the scheduled service window.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "5. Payment Information & Invoicing", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Payments are processed through secure, PCI-DSS compliant payment gateways. Cleankr never stores raw credit/debit card numbers or UPI PINs on its servers. We retain transaction IDs and GST invoice records as required by tax laws.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "6. Partner Assignment & Number Masking", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "For mutual privacy, telephone communications between customers and hygiene partners are conducted via virtual masked telephony. Partners never receive your personal mobile number.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "7. Push Notifications & FCM", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "We use Firebase Cloud Messaging (FCM) to transmit real-time booking alerts, partner dispatch notices, and service completion confirmations. You can control notification permissions in your device settings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "8. Support & Dispute Records", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Customer care inquiries, feedback tickets, and resolution correspondence are maintained to guarantee service quality and resolve any customer concerns.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "9. Security & Fraud Prevention", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Firebase App Check, SSL/TLS transport encryption, and granular Firestore security rules protect customer records against unauthorized tampering and fraud.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "10. Statutory Data Retention", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Completed billing receipts, tax records, and legal transaction entries are archived for the duration mandated by applicable statutory tax and accounting regulations.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "11. Account Deletion & Data Rights", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "You have the right to delete your customer account at any time through Account Settings. Deletion irreversibly anonymizes personal profile data and removes saved addresses. Statutory financial records are preserved as required by law.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "12. Children's Privacy", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Cleankr services are intended solely for individuals aged 18 and older. We do not knowingly collect personal information from minors.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "13. Policy Changes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "We may update our Privacy Policy periodically. Significant changes are notified through the Customer App or via registered contact channels.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(text = "14. Contact & Grievance Officer", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "For data privacy inquiries or grievance redressal, contact our Data Protection team at privacy@cleankr.com or through the Customer Support helpline.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                lineHeight = 18.sp
+                            )
+                        }
                     }
                 }
             }

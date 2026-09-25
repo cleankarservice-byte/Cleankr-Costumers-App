@@ -15,6 +15,7 @@ import com.example.core.model.SupportTicket
 @Entity(tableName = "bookings")
 data class BookingEntity(
     @PrimaryKey val id: String,
+    val customerId: String = "cust_001",
     val serviceId: String,
     val serviceTitle: String,
     val categoryName: String,
@@ -46,6 +47,7 @@ data class BookingEntity(
     val partnerMaskedPhone: String?,
     val startPin: String,
     val createdAt: Long,
+    val updatedAt: Long = createdAt,
     val cancellationReason: String?,
     val userRating: Float?,
     val userReview: String?
@@ -81,6 +83,7 @@ data class BookingEntity(
 
         return Booking(
             id = id,
+            customerId = customerId,
             serviceId = serviceId,
             serviceTitle = serviceTitle,
             category = cat,
@@ -100,6 +103,7 @@ data class BookingEntity(
             partner = partner,
             startPin = startPin,
             createdAt = createdAt,
+            updatedAt = updatedAt,
             cancellationReason = cancellationReason,
             userRating = userRating,
             userReview = userReview
@@ -110,6 +114,7 @@ data class BookingEntity(
         fun fromDomain(b: Booking): BookingEntity {
             return BookingEntity(
                 id = b.id,
+                customerId = b.customerId,
                 serviceId = b.serviceId,
                 serviceTitle = b.serviceTitle,
                 categoryName = b.category.name,
@@ -140,6 +145,7 @@ data class BookingEntity(
                 partnerMaskedPhone = b.partner?.maskedPhone,
                 startPin = b.startPin,
                 createdAt = b.createdAt,
+                updatedAt = b.updatedAt,
                 cancellationReason = b.cancellationReason,
                 userRating = b.userRating,
                 userReview = b.userReview

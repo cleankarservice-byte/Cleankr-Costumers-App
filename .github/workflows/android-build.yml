@@ -1,0 +1,112 @@
+name: Android CI Build
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Android Customer App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Prepare Signing and Build Environment
+        run: |
+          chmod +x ./gradlew
+          touch .env
+
+          # Ensure debug.keystore is available
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+          # Decode release keystore if provided in secrets
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > my-upload-key.jks
+            echo "RELEASE_KEYSTORE_CONFIGURED=true" >> $GITHUB_ENV
+          elif [ -n "${{ secrets.KEYSTORE_PATH }}" ] && [ -f "${{ secrets.KEYSTORE_PATH }}" ]; then
+            echo "RELEASE_KEYSTORE_CONFIGURED=true" >> $GITHUB_ENV
+          else
+            echo "RELEASE_KEYSTORE_CONFIGURED=false" >> $GITHUB_ENV
+            echo "::notice ::Production release keystore not provided in GitHub secrets. Building release artifacts with fallback signing."
+          fi
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build Release APK and AAB
+        env:
+          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Verify and Organize Build Artifacts
+        run: |
+          mkdir -p artifacts/debug artifacts/release-apk artifacts/release-aab
+
+          # Debug APK
+          find app/build/outputs/apk/debug/ -name "*.apk" -exec cp {} artifacts/debug/app-debug.apk \; || true
+          if [ ! -f artifacts/debug/app-debug.apk ]; then
+            find . -name "*debug*.apk" -exec cp {} artifacts/debug/app-debug.apk \; || true
+          fi
+
+          # Release APK
+          find app/build/outputs/apk/release/ -name "*.apk" -exec cp {} artifacts/release-apk/app-release.apk \; || true
+          if [ ! -f artifacts/release-apk/app-release.apk ]; then
+            find . -name "*release*.apk" -exec cp {} artifacts/release-apk/app-release.apk \; || true
+          fi
+
+          # Release AAB
+          find app/build/outputs/bundle/release/ -name "*.aab" -exec cp {} artifacts/release-aab/app-release.aab \; || true
+          if [ ! -f artifacts/release-aab/app-release.aab ]; then
+            find . -name "*release*.aab" -exec cp {} artifacts/release-aab/app-release.aab \; || true
+          fi
+
+          echo "Generated artifacts:"
+          ls -la artifacts/debug/ artifacts/release-apk/ artifacts/release-aab/ || true
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleankr-customer-debug-apk
+          path: artifacts/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleankr-customer-release-apk
+          path: artifacts/release-apk/app-release.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Release AAB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleankr-customer-release-aab
+          path: artifacts/release-aab/app-release.aab
+          if-no-files-found: warn
+          retention-days: 30

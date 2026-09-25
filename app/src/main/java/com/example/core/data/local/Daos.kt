@@ -12,6 +12,12 @@ interface BookingDao {
     @Query("SELECT * FROM bookings ORDER BY createdAt DESC")
     fun getAllBookings(): Flow<List<BookingEntity>>
 
+    @Query("SELECT * FROM bookings WHERE customerId = :customerId ORDER BY createdAt DESC")
+    fun getBookingsForCustomer(customerId: String): Flow<List<BookingEntity>>
+
+    @Query("SELECT * FROM bookings WHERE customerId = :customerId AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY createdAt DESC")
+    fun getActiveBookingsForCustomer(customerId: String): Flow<List<BookingEntity>>
+
     @Query("SELECT * FROM bookings WHERE id = :id LIMIT 1")
     fun getBookingById(id: String): Flow<BookingEntity?>
 

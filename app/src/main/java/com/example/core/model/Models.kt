@@ -101,6 +101,7 @@ enum class PaymentStatus(val displayName: String) {
 
 data class Booking(
     val id: String,
+    val customerId: String = "cust_001",
     val serviceId: String,
     val serviceTitle: String,
     val category: ServiceCategory,
@@ -120,6 +121,7 @@ data class Booking(
     val partner: PartnerInfo? = null,
     val startPin: String = "4821",
     val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
     val cancellationReason: String? = null,
     val userRating: Float? = null,
     val userReview: String? = null
@@ -130,6 +132,7 @@ data class CustomerUser(
     val name: String,
     val phone: String,
     val email: String,
+    val role: String = "customer",
     val isVerified: Boolean = true,
     val hasPinSet: Boolean = false,
     val pinHash: String = ""

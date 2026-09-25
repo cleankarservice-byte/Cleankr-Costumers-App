@@ -376,7 +376,7 @@ fun BookingTrackingScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Live Simulation Controls",
+                            text = "Cleankr Ecosystem Sync",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = CleankrTealDark
@@ -385,7 +385,7 @@ fun BookingTrackingScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Advance order lifecycle step-by-step to test real-time customer experience:",
+                        text = "Real-time updates from Cleankr Partner App & Admin Panel. In test/offline mode, advance status below:",
                         style = MaterialTheme.typography.bodySmall,
                         color = CleankrSlate,
                         fontSize = 11.sp

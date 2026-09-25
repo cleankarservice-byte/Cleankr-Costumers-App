@@ -1,13 +1,23 @@
 package com.example.core.repository
 
+import android.util.Log
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.data.local.AddressDao
 import com.example.core.data.local.AddressEntity
+import com.example.core.data.session.SessionManager
 import com.example.core.model.Address
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.util.UUID
 
-class AddressRepository(private val addressDao: AddressDao) {
+class AddressRepository(
+    private val addressDao: AddressDao,
+    private val firebaseBackend: FirebaseBackendService? = null,
+    private val sessionManager: SessionManager? = null
+) {
+    private val tag = "AddressRepo"
 
     val addresses: Flow<List<Address>> = addressDao.getAllAddresses().map { list ->
         list.map { it.toDomain() }
@@ -15,8 +25,25 @@ class AddressRepository(private val addressDao: AddressDao) {
 
     val defaultAddress: Flow<Address?> = addressDao.getDefaultAddress().map { it?.toDomain() }
 
+    fun startRealtimeSync(customerId: String, scope: CoroutineScope) {
+        val fb = firebaseBackend ?: return
+        if (!fb.isFirebaseConfigured()) return
+
+        scope.launch {
+            try {
+                fb.observeCustomerAddresses(customerId).collect { backendAddresses ->
+                    if (backendAddresses.isNotEmpty()) {
+                        addressDao.insertAddresses(backendAddresses.map { AddressEntity.fromDomain(it) })
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Address sync error: ${e.message}")
+            }
+        }
+    }
+
     suspend fun ensureInitialAddresses() {
-        // Seed default sample address if none exist
+        // Seed default initial address if none exist
         val initial = listOf(
             AddressEntity(
                 id = "addr_home_1",
@@ -53,6 +80,11 @@ class AddressRepository(private val addressDao: AddressDao) {
             addressDao.clearDefaultFlags()
         }
         addressDao.insertAddress(AddressEntity.fromDomain(finalAddress))
+
+        // Synchronize to Firestore for authenticated customer
+        val customerId = sessionManager?.currentUser?.value?.id ?: "cust_001"
+        firebaseBackend?.saveAddressInBackend(customerId, finalAddress)
+
         return finalAddress
     }
 
@@ -61,6 +93,10 @@ class AddressRepository(private val addressDao: AddressDao) {
             addressDao.clearDefaultFlags()
         }
         addressDao.insertAddress(AddressEntity.fromDomain(address))
+
+        // Synchronize to Firestore for authenticated customer
+        val customerId = sessionManager?.currentUser?.value?.id ?: "cust_001"
+        firebaseBackend?.saveAddressInBackend(customerId, address)
     }
 
     suspend fun setDefault(id: String) {
@@ -70,5 +106,9 @@ class AddressRepository(private val addressDao: AddressDao) {
 
     suspend fun deleteAddress(id: String) {
         addressDao.deleteAddressById(id)
+
+        // Delete from Firestore for authenticated customer
+        val customerId = sessionManager?.currentUser?.value?.id ?: "cust_001"
+        firebaseBackend?.deleteAddressInBackend(customerId, id)
     }
 }

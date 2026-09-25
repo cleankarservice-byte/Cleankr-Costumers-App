@@ -2,6 +2,7 @@ package com.example.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.data.session.SessionManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -18,7 +19,10 @@ sealed class AuthUiState {
     data class Error(val message: String) : AuthUiState()
 }
 
-class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
+class AuthViewModel(
+    private val sessionManager: SessionManager,
+    private val firebaseBackend: FirebaseBackendService? = null
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Idle)
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -86,11 +90,24 @@ class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
             }
 
             // Save authenticated session
-            sessionManager.saveLoginSession(
-                phone = if (phone.startsWith("+91")) phone else "+91 $phone"
-            )
-            _uiState.value = AuthUiState.Authenticated
+            val finalPhone = if (phone.startsWith("+91")) phone else "+91 $phone"
+            sessionManager.saveLoginSession(phone = finalPhone)
+
             val user = sessionManager.currentUser.value
+            val customerId = user?.id ?: "cust_${phone.takeLast(6)}"
+
+            // Synchronize with shared Cleankr ecosystem (strictly Customer role)
+            firebaseBackend?.syncCustomerProfile(
+                customerId = customerId,
+                name = user?.name ?: "Cleankr Customer",
+                phone = finalPhone,
+                email = user?.email ?: "customer@cleankr.com"
+            )
+
+            // Proactively sync FCM device push notification token
+            firebaseBackend?.syncCurrentFcmToken(customerId)
+
+            _uiState.value = AuthUiState.Authenticated
             val needsPinSetup = user?.hasPinSet != true
             onSuccess(needsPinSetup)
         }
@@ -121,15 +138,26 @@ class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
     }
 
     fun logout(onLoggedOut: () -> Unit) {
-        sessionManager.logout()
-        _uiState.value = AuthUiState.Idle
-        onLoggedOut()
+        val customerId = sessionManager.currentUser.value?.id
+        viewModelScope.launch {
+            if (!customerId.isNullOrBlank()) {
+                firebaseBackend?.removeFcmToken(customerId)
+            }
+            sessionManager.logout()
+            _uiState.value = AuthUiState.Idle
+            onLoggedOut()
+        }
     }
 
     fun deleteAccount(reason: String, onDeleted: () -> Unit) {
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
-            delay(1000)
+            val customerId = sessionManager.currentUser.value?.id
+            if (!customerId.isNullOrBlank()) {
+                firebaseBackend?.removeFcmToken(customerId)
+                firebaseBackend?.deleteCustomerAccountInBackend(customerId, reason)
+            }
+            delay(500)
             sessionManager.deleteAccount()
             _uiState.value = AuthUiState.Idle
             onDeleted()

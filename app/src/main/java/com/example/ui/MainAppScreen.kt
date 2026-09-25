@@ -1,5 +1,11 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -10,6 +16,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,8 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.example.core.di.AppContainer
 import com.example.core.model.ServiceCategory
 import com.example.ui.history.BookingHistoryScreen
@@ -43,8 +52,38 @@ fun MainAppScreen(
     onNavigateToPolicies: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     var currentTab by remember { mutableStateOf(BottomTab.HOME) }
     val currentUser by appContainer.sessionManager.currentUser.collectAsState()
+
+    // Android 13+ (API 33+) Runtime Notification Permission Handling
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val customerId = currentUser?.id ?: "cust_001"
+            appContainer.firebaseBackend.syncCurrentFcmToken(customerId)
+        }
+        // If denied, app gracefully handles without crashing or locking out features
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = Manifest.permission.POST_NOTIFICATIONS
+            val isGranted = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+            if (!isGranted) {
+                val prefs = context.getSharedPreferences("cleankr_customer_prefs", Context.MODE_PRIVATE)
+                val alreadyPrompted = prefs.getBoolean("notif_permission_prompted", false)
+                if (!alreadyPrompted) {
+                    prefs.edit().putBoolean("notif_permission_prompted", true).apply()
+                    notificationPermissionLauncher.launch(permission)
+                }
+            } else {
+                val customerId = currentUser?.id ?: "cust_001"
+                appContainer.firebaseBackend.syncCurrentFcmToken(customerId)
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
@@ -112,7 +151,7 @@ fun MainAppScreen(
                 BottomTab.ACCOUNT -> ProfileScreen(
                     sessionManager = appContainer.sessionManager,
                     authViewModel = androidx.lifecycle.viewmodel.compose.viewModel {
-                        com.example.ui.auth.AuthViewModel(appContainer.sessionManager)
+                        com.example.ui.auth.AuthViewModel(appContainer.sessionManager, appContainer.firebaseBackend)
                     },
                     onNavigateToAddresses = onNavigateToAddresses,
                     onNavigateToSupport = onNavigateToSupport,

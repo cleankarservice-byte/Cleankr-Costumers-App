@@ -1,0 +1,166 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isCustomer() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'customer' ||
+        !('role' in request.auth.token) // Default authenticated user is treated as customer
+      );
+    }
+
+    function isPartner() {
+      return isAuthenticated() && request.auth.token.role == 'partner';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.role == 'admin';
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // -------------------------------------------------------------------------
+    // Users & Customers Profile Collections
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      // Customers can only update their own profile, and CANNOT elevate their role to partner or admin
+      allow create: if isOwner(userId) && request.resource.data.role == 'customer';
+      allow update: if isOwner(userId) && request.resource.data.role == resource.data.role;
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow read: if isOwner(customerId) || isAdmin();
+      allow write: if isOwner(customerId) || isAdmin();
+
+      match /addresses/{addressId} {
+        allow read, write: if isOwner(customerId) || isAdmin();
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Services & Categories (Company Controlled)
+    // -------------------------------------------------------------------------
+    match /services/{serviceId} {
+      allow read: if true; // Public catalog
+      allow write: if isAdmin(); // Only Admin can modify services & prices
+    }
+
+    match /service_categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Bookings (Shared with Admin & Partner Ecosystem)
+    // -------------------------------------------------------------------------
+    match /bookings/{bookingId} {
+      // Customer can ONLY read their own bookings
+      // Partner can read if assigned to them
+      // Admin can read all
+      allow read: if (isAuthenticated() && resource.data.customerId == request.auth.uid) ||
+                     (isPartner() && resource.data.partnerId == request.auth.uid) ||
+                     isAdmin();
+
+      // Customer can create initial booking request
+      // - Must set customerId to own auth uid
+      // - Initial status must strictly be 'BOOKED'
+      // - Partner fields must be null (cannot assign partners)
+      allow create: if isAuthenticated() &&
+                       request.resource.data.customerId == request.auth.uid &&
+                       request.resource.data.status == 'BOOKED' &&
+                       (!('partnerId' in request.resource.data) || request.resource.data.partnerId == null);
+
+      // Customer update permissions:
+      // - Can cancel booking (sets status = 'CANCELLED' with reason)
+      // - Can reschedule (updates bookingDate & slotTime)
+      // - Can add userRating & userReview after completion
+      // - CANNOT assign partner, modify totalAmount/prices, or mark as COMPLETED
+      allow update: if (
+        // Customer permitted updates
+        (isAuthenticated() && resource.data.customerId == request.auth.uid &&
+          (
+            // Cancellation
+            (request.resource.data.status == 'CANCELLED' && resource.data.status != 'COMPLETED') ||
+            // Reschedule
+            (request.resource.data.status == resource.data.status && request.resource.data.totalAmount == resource.data.totalAmount) ||
+            // Review/Rating
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userRating', 'userReview', 'updatedAt']))
+          )
+        ) ||
+        // Partner permitted updates (updating status between ACCEPTED, ON_THE_WAY, ARRIVED, STARTED, COMPLETED)
+        (isPartner() && resource.data.partnerId == request.auth.uid) ||
+        // Admin full management
+        isAdmin()
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Booking Status Audit Log
+    // -------------------------------------------------------------------------
+    match /booking_status/{statusId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Addresses
+    // -------------------------------------------------------------------------
+    match /addresses/{addressId} {
+      allow read, write: if isAuthenticated() && (
+        resource == null || resource.data.customerId == request.auth.uid ||
+        request.resource.data.customerId == request.auth.uid
+      ) || isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Payments (Customer can only read own payments; writes verified by backend)
+    // -------------------------------------------------------------------------
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.customerId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Notifications
+    // -------------------------------------------------------------------------
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid || isAdmin();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.customerId == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isAuthenticated() && resource.data.customerId == request.auth.uid || isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Support Tickets
+    // -------------------------------------------------------------------------
+    match /support_tickets/{ticketId} {
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Reviews
+    // -------------------------------------------------------------------------
+    match /reviews/{reviewId} {
+      allow read: if true; // Public reviews
+      allow create: if isAuthenticated() && request.resource.data.customerId == request.auth.uid;
+      allow update, delete: if isAdmin() || (isAuthenticated() && resource.data.customerId == request.auth.uid);
+    }
+  }
+}

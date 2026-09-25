@@ -1,0 +1,35 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+             request.auth.token.role == 'admin';
+    }
+
+    // Customer private documents and support ticket media
+    match /customers/{customerId}/{category}/{fileName} {
+      // Customer can read and write only their own files
+      allow read: if isOwner(customerId) || isAdmin();
+      allow write: if isOwner(customerId) &&
+                      request.resource.size < 10 * 1024 * 1024 && // max 10MB
+                      request.resource.contentType.matches('image/.*|application/pdf');
+      allow delete: if isOwner(customerId) || isAdmin();
+    }
+
+    // Public service assets (managed by admin)
+    match /services/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

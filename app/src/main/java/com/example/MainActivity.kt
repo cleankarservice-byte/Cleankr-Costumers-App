@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
 fun CleankrCustomerAppNavHost(appContainer: AppContainer) {
     val navController = rememberNavController()
     val authViewModel: AuthViewModel = viewModel {
-        AuthViewModel(appContainer.sessionManager)
+        AuthViewModel(appContainer.sessionManager, appContainer.firebaseBackend)
     }
 
     NavHost(
