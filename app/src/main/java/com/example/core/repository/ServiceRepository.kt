@@ -1,20 +1,49 @@
 package com.example.core.repository
 
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.model.AddOnItem
 import com.example.core.model.ServiceCategory
 import com.example.core.model.ServiceItem
 import com.example.core.model.ServiceVariant
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
-class ServiceRepository {
+class ServiceRepository(
+    private val firebaseBackend: FirebaseBackendService? = null
+) {
 
     // Seed data reflecting official Cleankr fixed pricing architecture
-    // In production, this syncs directly from Firebase Firestore / Cleankr Backend API
+    // Synchronizes dynamically with Firebase Firestore 'services' collection
     private val _services = MutableStateFlow(createInitialCatalog())
     val services: Flow<List<ServiceItem>> = _services.asStateFlow()
+
+    fun startRealtimeSync(scope: CoroutineScope) {
+        val fb = firebaseBackend ?: return
+        if (!fb.isFirebaseConfigured()) return
+        scope.launch {
+            try {
+                fb.observeServicesCatalog().collect { backendServices ->
+                    if (backendServices.isNotEmpty()) {
+                        updateCatalogFromBackend(backendServices)
+                    }
+                }
+            } catch (e: Exception) {
+                // Offline fallback maintains official catalog
+            }
+        }
+    }
+
+    fun updateCatalogFromBackend(items: List<ServiceItem>) {
+        if (items.isNotEmpty()) {
+            _services.value = items
+        }
+    }
+
+    fun getAllServices(): List<ServiceItem> = _services.value
 
     fun getServicesByCategory(category: ServiceCategory): Flow<List<ServiceItem>> {
         return services.map { list -> list.filter { it.category == category } }
@@ -41,36 +70,39 @@ class ServiceRepository {
     }
 
     private fun createInitialCatalog(): List<ServiceItem> {
+        // Official Add-ons
         val glassPartitionAddOn = AddOnItem(
             id = "addon_glass_partition",
-            name = "Glass Partition Descaling & Polish",
+            name = "Glass Partition Add-on",
             price = 200,
             description = "Specialized acid-free treatment to restore frosted and stained shower glass partitions to showroom shine."
         )
 
-        val exhaustFanAddOn = AddOnItem(
-            id = "addon_exhaust_fan",
-            name = "Exhaust Fan Degreasing",
-            price = 150,
-            description = "Complete dismantling, deep degreasing of blades and outer mesh grill."
+        val chimneyAddOn = AddOnItem(
+            id = "addon_kitchen_chimney",
+            name = "Chimney",
+            price = 200,
+            description = "Deep degreasing of chimney mesh filters and baffle plates."
         )
 
-        val drainDeodorizerAddOn = AddOnItem(
-            id = "addon_drain_bio",
-            name = "Bio-Enzymatic Drain Flusher",
-            price = 120,
-            description = "High-potency bio-enzymatic drain treatment preventing odor and sludge buildup."
-        )
-
-        val chimneyFilterAddOn = AddOnItem(
-            id = "addon_chimney_filter",
-            name = "Kitchen Chimney Baffle Filter Soak",
+        val cabinetsAddOn = AddOnItem(
+            id = "addon_kitchen_cabinets",
+            name = "Cabinets",
             price = 250,
-            description = "Intense alkaline soak and steam blast to strip grease and burnt oils."
+            description = "Interior and exterior cabinet sanitization, shelf wiping, and dust removal."
+        )
+
+        val trolleysAddOn = AddOnItem(
+            id = "addon_kitchen_trolleys",
+            name = "Trolleys",
+            price = 350,
+            description = "Trolley baskets dismantling, track wash, and oil residue removal."
         )
 
         return listOf(
-            // BATHROOM CATEGORY (Exact pricing specified in requirements)
+            // =================================================================
+            // 1. BATHROOM CATEGORY
+            // =================================================================
             ServiceItem(
                 id = "srv_bath_intense",
                 category = ServiceCategory.BATHROOM,
@@ -86,7 +118,7 @@ class ServiceRepository {
                     ServiceVariant("var_bath_intense_2", "2 Bathrooms", 850, "110 mins"),
                     ServiceVariant("var_bath_intense_3", "3 Bathrooms", 1250, "160 mins")
                 ),
-                addOns = listOf(glassPartitionAddOn, exhaustFanAddOn, drainDeodorizerAddOn),
+                addOns = listOf(glassPartitionAddOn),
                 included = listOf(
                     "Deep scrubbing of floor and wall tiles (up to 7 ft)",
                     "Sanitization of toilet commode, seat and jet spray",
@@ -121,7 +153,7 @@ class ServiceRepository {
                     ServiceVariant("var_bath_movein_2", "2 Bathrooms", 950, "130 mins"),
                     ServiceVariant("var_bath_movein_3", "3 Bathrooms", 1350, "180 mins")
                 ),
-                addOns = listOf(glassPartitionAddOn, exhaustFanAddOn, drainDeodorizerAddOn),
+                addOns = listOf(glassPartitionAddOn),
                 included = listOf(
                     "Full wall tile ceiling-to-floor mechanical buffing",
                     "Complete hospital-grade sanitization and germ guard",
@@ -154,7 +186,7 @@ class ServiceRepository {
                     ServiceVariant("var_bath_hardwater_2", "2 Bathrooms", 1100, "150 mins"),
                     ServiceVariant("var_bath_hardwater_3", "3 Bathrooms", 1600, "210 mins")
                 ),
-                addOns = listOf(glassPartitionAddOn, exhaustFanAddOn),
+                addOns = listOf(glassPartitionAddOn),
                 included = listOf(
                     "Concentrated mineral scale dissolution on bathroom fixtures",
                     "Shower head unclogging & descaling treatment",
@@ -170,55 +202,59 @@ class ServiceRepository {
                 )
             ),
 
-            // KITCHEN CATEGORY
+            // =================================================================
+            // 2. KITCHEN CATEGORY
+            // =================================================================
             ServiceItem(
-                id = "srv_kitchen_deep",
+                id = "srv_kitchen_clean",
                 category = ServiceCategory.KITCHEN,
-                title = "Kitchen Deep Degreasing & Sanitization",
-                shortDesc = "Industrial stove degreasing, backsplash scrub, slab & sink polish",
-                fullDesc = "Cuts through sticky Indian cooking oil vapours, spice residue, and blackened grease on gas stoves, tiles, countertops, and exterior cabinetry.",
-                rating = 4.86f,
-                reviewsCount = 2740,
-                durationText = "90 - 140 mins",
-                basePrice = 899,
+                title = "Kitchen Cleaning",
+                shortDesc = "Stove degreasing, backsplash scrub, counter slab, sink & appliance exterior polish",
+                fullDesc = "Complete kitchen deep cleaning cutting through grease, oil stains, spices, and cooking grime. Restores hygiene and sparkle to your cooking space.",
+                rating = 4.89f,
+                reviewsCount = 2840,
+                durationText = "120 mins",
+                basePrice = 1400,
                 variants = listOf(
-                    ServiceVariant("var_kitch_std", "Standard Kitchen (upto 80 sq.ft)", 899, "90 mins"),
-                    ServiceVariant("var_kitch_large", "Large / Modular Kitchen (80+ sq.ft)", 1399, "140 mins")
+                    ServiceVariant("var_kitchen_standard", "Kitchen Cleaning", 1400, "120 mins")
                 ),
-                addOns = listOf(chimneyFilterAddOn, exhaustFanAddOn),
+                addOns = listOf(chimneyAddOn, cabinetsAddOn, trolleysAddOn),
                 included = listOf(
-                    "Gas burners, knobs, and drip tray degreasing",
-                    "Kitchen backsplash tile scrub and grease removal",
-                    "Granite slab descaling and steel sink buffing",
-                    "Exterior wipedown of modular cabinets and drawers",
-                    "Fridge & microwave exterior wipedown"
+                    "Gas stove burners, knobs, and drip tray degreasing",
+                    "Countertop and backsplash tile deep scrub",
+                    "Stainless steel sink descaling and faucet buffing",
+                    "Exterior wipedown of appliances (fridge, microwave, oven)",
+                    "Floor machine scrub and trash clearance"
                 ),
                 notIncluded = listOf(
-                    "Emptying packed kitchen food containers or grocery jars",
-                    "Chimney motor coil dismantling"
+                    "Dismantling internal chimney motor coil",
+                    "Washing personal crockery or dishes"
                 ),
                 importantNotes = listOf(
-                    "Kitchen must be empty of raw vegetables and open food items."
+                    "Keep raw vegetables and unpacked food items safely covered."
                 )
             ),
 
-            // FLAT CATEGORY
+            // =================================================================
+            // 3. FLAT CATEGORY
+            // =================================================================
             ServiceItem(
                 id = "srv_flat_deep",
                 category = ServiceCategory.FLAT,
                 title = "Full Home Deep Cleaning",
                 shortDesc = "Complete 360° deep clean of rooms, floors, windows & cobweb removal",
                 fullDesc = "Comprehensive whole-apartment sanitization including living room, bedrooms, balcony, dry balcony, windows, tracks, ceiling fans, and single-disc machine floor buffing.",
-                rating = 4.91f,
-                reviewsCount = 5210,
-                durationText = "3 - 5 hours",
-                basePrice = 1899,
+                rating = 4.93f,
+                reviewsCount = 5420,
+                durationText = "3 - 6 hours",
+                basePrice = 3000,
                 variants = listOf(
-                    ServiceVariant("var_flat_1bhk", "1 BHK Full Deep Clean", 1899, "180 mins"),
-                    ServiceVariant("var_flat_2bhk", "2 BHK Full Deep Clean", 2799, "240 mins"),
-                    ServiceVariant("var_flat_3bhk", "3 BHK Full Deep Clean", 3699, "300 mins")
+                    ServiceVariant("var_flat_1bhk", "1 BHK", 3000, "180 mins"),
+                    ServiceVariant("var_flat_2bhk", "2 BHK", 5000, "240 mins"),
+                    ServiceVariant("var_flat_3bhk", "3 BHK", 7000, "300 mins"),
+                    ServiceVariant("var_flat_4bhk", "4 BHK", 9200, "360 mins")
                 ),
-                addOns = listOf(glassPartitionAddOn, chimneyFilterAddOn, exhaustFanAddOn),
+                addOns = listOf(glassPartitionAddOn, chimneyAddOn),
                 included = listOf(
                     "Ceiling cobweb dusting and fan blade wipe",
                     "Window glass, grill and slider track vacuuming",
@@ -231,27 +267,28 @@ class ServiceRepository {
                     "Moving heavy solid teak furniture older than 10 years"
                 ),
                 importantNotes = listOf(
-                    "Team of 2-3 trained Cleankr pros will be dispatched."
+                    "Team of 2-4 trained Cleankr pros will be dispatched."
                 )
             ),
 
-            // BALCONY CATEGORY
+            // =================================================================
+            // 4. BALCONY CATEGORY (OTHER / BALCONY)
+            // =================================================================
             ServiceItem(
                 id = "srv_balcony_clean",
                 category = ServiceCategory.BALCONY,
-                title = "Balcony & Utility Area Clean",
+                title = "Balcony Cleaning",
                 shortDesc = "Pigeon drop removal, floor jet wash, railing and bird net dusting",
                 fullDesc = "Specially formulated for open urban balconies subjected to pollution, pigeon droppings, moss, and weather grime. High-pressure jet cleaning restores tiles and safety grills.",
-                rating = 4.82f,
-                reviewsCount = 1430,
+                rating = 4.84f,
+                reviewsCount = 1580,
                 durationText = "45 - 75 mins",
-                basePrice = 499,
+                basePrice = 600,
                 variants = listOf(
-                    ServiceVariant("var_balc_1", "1 Standard Balcony", 499, "45 mins"),
-                    ServiceVariant("var_balc_2", "2 Balconies", 849, "75 mins"),
-                    ServiceVariant("var_balc_3", "3 Balconies / Large Terrace", 1249, "110 mins")
+                    ServiceVariant("var_balc_small", "Small Balcony", 600, "45 mins"),
+                    ServiceVariant("var_balc_big", "Big Balcony", 850, "75 mins")
                 ),
-                addOns = listOf(drainDeodorizerAddOn),
+                addOns = emptyList(),
                 included = listOf(
                     "Pigeon dropping softening and bio-hazard sanitized wipe",
                     "Safety railing and bird net dusting",
@@ -267,65 +304,114 @@ class ServiceRepository {
                 )
             ),
 
-            // OTHER CATEGORY
+            // =================================================================
+            // 5. OTHER CLEANING CATEGORY
+            // =================================================================
             ServiceItem(
-                id = "srv_other_sofa",
+                id = "srv_other_fan",
                 category = ServiceCategory.OTHER,
-                title = "Sofa & Upholstery Shampooing",
-                shortDesc = "Fabric foam extraction, dust-mite suction & anti-allergen treatment",
-                fullDesc = "Deep industrial injection-extraction shampooing that extracts deeply embedded sweat, dust mites, pet hair, and drink spills from fabric and suede couches.",
-                rating = 4.89f,
-                reviewsCount = 2190,
-                durationText = "60 - 90 mins",
-                basePrice = 599,
+                title = "Fan Cleaning",
+                shortDesc = "Ceiling fan blades, motor housing dust extraction & wiping",
+                fullDesc = "Professional high-reach vacuuming, dry wiping, and chemical degreasing of ceiling fan blades and motor tops to remove caked dust and grime.",
+                rating = 4.86f,
+                reviewsCount = 890,
+                durationText = "15 - 20 mins",
+                basePrice = 60,
                 variants = listOf(
-                    ServiceVariant("var_sofa_3seater", "3 Seater Sofa", 599, "60 mins"),
-                    ServiceVariant("var_sofa_5seater", "5 Seater (3+1+1 or L-shape)", 899, "90 mins"),
-                    ServiceVariant("var_sofa_7seater", "7 Seater Jumbo Sectional", 1299, "120 mins")
+                    ServiceVariant("var_fan_clean", "1 Ceiling Fan", 60, "15 mins")
                 ),
-                addOns = listOf(
-                    AddOnItem("addon_mattress", "Single Mattress Sanitization", 350, "UV-C light and steam suction of mattress.")
-                ),
+                addOns = emptyList(),
                 included = listOf(
-                    "High-suction dry vacuuming",
-                    "Foam scrub with neutral pH fabric cleanser",
-                    "Extraction of dirty moisture with heavy vacuum",
-                    "Aroma deodorizer spray"
+                    "Blades top & bottom deep wiping",
+                    "Motor casing dust removal",
+                    "Drop cloth placed to catch loose dust"
                 ),
                 notIncluded = listOf(
-                    "Pure leather conditioning (different service)",
-                    "Drying within 3 hours in rainy humid weather (requires fan/AC)"
+                    "Electrical motor rewiring or regulator repairs"
                 ),
                 importantNotes = listOf(
-                    "Takes 3 to 4 hours to dry under ceiling fan after cleaning."
+                    "Fans must be switched off prior to partner arrival."
                 )
             ),
 
             ServiceItem(
-                id = "srv_other_glass",
+                id = "srv_other_exhaust_fan",
                 category = ServiceCategory.OTHER,
-                title = "Glass Windows & Partition Descaling",
-                shortDesc = "Exterior and interior sliding glass squeegee polish and track clean",
-                fullDesc = "Restore absolute crystal clarity to balcony sliding glass doors, French windows, and interior frosted partition glass with zero streaks.",
-                rating = 4.87f,
-                reviewsCount = 980,
-                durationText = "45 - 60 mins",
-                basePrice = 399,
+                title = "Exhaust Fan Cleaning",
+                shortDesc = "Complete mesh, grill and greasy blade degreasing",
+                fullDesc = "Intensive degreasing and cleaning of kitchen or bathroom exhaust fan blades and louvers to restore maximum airflow.",
+                rating = 4.88f,
+                reviewsCount = 760,
+                durationText = "20 - 30 mins",
+                basePrice = 65,
                 variants = listOf(
-                    ServiceVariant("var_glass_upto3", "Upto 3 Glass Panels/Windows", 399, "45 mins"),
-                    ServiceVariant("var_glass_upto6", "Upto 6 Glass Panels/Windows", 699, "70 mins")
+                    ServiceVariant("var_exhaust_clean", "1 Exhaust Fan", 65, "20 mins")
                 ),
-                addOns = listOf(glassPartitionAddOn),
+                addOns = emptyList(),
                 included = listOf(
-                    "Rubber squeegee streak-free cleaning",
-                    "Aluminum slider track vacuuming & grime scraping",
-                    "Handle and frame wipe"
+                    "Blade degreasing and hot water chemical rinse",
+                    "Outer mesh grill scrubbing",
+                    "Surrounding wall wipe"
                 ),
                 notIncluded = listOf(
-                    "High-rise hanging rope exterior facade cleaning"
+                    "Exhaust duct chimney masonry work"
                 ),
                 importantNotes = listOf(
-                    "Window sliders must be structurally intact."
+                    "Exhaust unit must have accessible power switch."
+                )
+            ),
+
+            ServiceItem(
+                id = "srv_other_glass_window",
+                category = ServiceCategory.OTHER,
+                title = "Glass Window Cleaning",
+                shortDesc = "Streak-free window panes, frames, and aluminum slider track cleaning",
+                fullDesc = "Crystal-clear squeegee cleaning of glass window panes, window frames, and vacuuming of slider tracks.",
+                rating = 4.87f,
+                reviewsCount = 1120,
+                durationText = "30 - 45 mins",
+                basePrice = 300,
+                variants = listOf(
+                    ServiceVariant("var_window_clean", "Glass Window", 300, "30 mins")
+                ),
+                addOns = emptyList(),
+                included = listOf(
+                    "Streak-free glass pane polish",
+                    "Frame wipe and corner vacuum",
+                    "Slider track grime removal"
+                ),
+                notIncluded = listOf(
+                    "Exterior glass on high-rise buildings without safety balcony"
+                ),
+                importantNotes = listOf(
+                    "Window sliders must be structurally sound."
+                )
+            ),
+
+            ServiceItem(
+                id = "srv_other_glass_door",
+                category = ServiceCategory.OTHER,
+                title = "Glass Door Cleaning",
+                shortDesc = "Streak-free polishing of large glass doors and French doors",
+                fullDesc = "Specialized ammonia-free descaling and squeegee buffing for large sliding glass doors, balcony doors, and interior glass partitions.",
+                rating = 4.90f,
+                reviewsCount = 940,
+                durationText = "40 - 55 mins",
+                basePrice = 400,
+                variants = listOf(
+                    ServiceVariant("var_door_clean", "Glass Door", 400, "40 mins")
+                ),
+                addOns = emptyList(),
+                included = listOf(
+                    "Full glass panel streak-free polish on both sides",
+                    "Handle and chrome frame buffing",
+                    "Bottom runner track cleaning"
+                ),
+                notIncluded = listOf(
+                    "Cracked glass repair or tint film removal"
+                ),
+                importantNotes = listOf(
+                    "Please notify pros of any pre-existing glass scratches."
                 )
             )
         )

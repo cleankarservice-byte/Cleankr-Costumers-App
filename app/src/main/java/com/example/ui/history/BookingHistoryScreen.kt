@@ -184,6 +184,15 @@ fun BookingHistoryCard(
                 color = CleankrSlate
             )
 
+            if (!booking.hubName.isNullOrBlank()) {
+                Text(
+                    text = "Hub: ${booking.hubName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CleankrTeal,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleankrBorder)
 
             Row(

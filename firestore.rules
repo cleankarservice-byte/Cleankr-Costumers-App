@@ -59,6 +59,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /hubs/{hubId} {
+      allow read: if true; // Active hub validation for customer address routing
+      allow write: if isAdmin();
+    }
+
     // -------------------------------------------------------------------------
     // Bookings (Shared with Admin & Partner Ecosystem)
     // -------------------------------------------------------------------------

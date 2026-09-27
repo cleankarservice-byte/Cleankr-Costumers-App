@@ -190,6 +190,25 @@ fun BookingTrackingScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = CleankrTealDark
                     )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.LocationOn, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Service Hub: ${b.hubName ?: "Cleankr Active Hub"}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CleankrNavyDark
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Price Snapshot: Base ₹${b.basePrice} + Add-ons ₹${b.addOnPrice} = Total ₹${b.totalAmount} (${b.paymentStatus.displayName})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CleankrSlate
+                    )
                 }
             }
 

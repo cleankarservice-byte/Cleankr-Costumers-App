@@ -19,7 +19,7 @@ class AppContainer(context: Context) {
     val sessionManager = SessionManager(context)
     val firebaseBackend = FirebaseBackendService(context)
 
-    val serviceRepository = ServiceRepository()
+    val serviceRepository = ServiceRepository(firebaseBackend)
     val slotRepository = SlotRepository()
     val addressRepository = AddressRepository(database.addressDao(), firebaseBackend, sessionManager)
     val notificationRepository = NotificationRepository(database.notificationDao(), firebaseBackend)
@@ -45,6 +45,7 @@ class AppContainer(context: Context) {
             addressRepository.startRealtimeSync(customerId, this)
             bookingRepository.startRealtimeSync(customerId, this)
             notificationRepository.startRealtimeSync(customerId, this)
+            serviceRepository.startRealtimeSync(this)
 
             // Proactively sync FCM token with Firebase profile
             if (sessionManager.isLoggedIn.value) {

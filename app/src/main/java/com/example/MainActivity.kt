@@ -245,6 +245,7 @@ fun CleankrCustomerAppNavHost(appContainer: AppContainer) {
                 slotRepository = appContainer.slotRepository,
                 addressRepository = appContainer.addressRepository,
                 bookingRepository = appContainer.bookingRepository,
+                firebaseBackend = appContainer.firebaseBackend,
                 onBookingCompleted = { bookingId ->
                     navController.navigate(Screen.BookingSuccess.createRoute(bookingId)) {
                         popUpTo(Screen.BookingFlow.route) { inclusive = true }

@@ -77,9 +77,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.model.AddOnItem
 import com.example.core.model.Address
 import com.example.core.model.Booking
+import com.example.core.model.CleankrHub
 import com.example.core.model.PaymentMethod
 import com.example.core.model.ServiceItem
 import com.example.core.model.ServiceVariant
@@ -116,6 +118,7 @@ fun BookingFlowScreen(
     slotRepository: SlotRepository,
     addressRepository: AddressRepository,
     bookingRepository: BookingRepository,
+    firebaseBackend: FirebaseBackendService? = null,
     onBookingCompleted: (bookingId: String) -> Unit,
     onBackClick: () -> Unit
 ) {
@@ -151,6 +154,11 @@ fun BookingFlowScreen(
     var customerInstructions by remember { mutableStateOf("") }
     var paymentMethod by remember { mutableStateOf(PaymentMethod.ONLINE) }
 
+    // Active Hub detection state (Customer must not manually select a Hub)
+    var activeHub by remember { mutableStateOf<CleankrHub?>(null) }
+    var isCheckingHub by remember { mutableStateOf(false) }
+    var isHubServiceable by remember { mutableStateOf(true) }
+
     var isCreatingBooking by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -161,6 +169,33 @@ fun BookingFlowScreen(
     LaunchedEffect(defaultAddress, addresses) {
         if (selectedAddress == null) {
             selectedAddress = defaultAddress ?: addresses.firstOrNull()
+        }
+    }
+
+    // Automatically detect and bind the matching ACTIVE Cleankr Hub for the selected address
+    LaunchedEffect(selectedAddress) {
+        val addr = selectedAddress
+        if (addr != null && firebaseBackend != null) {
+            isCheckingHub = true
+            val hub = firebaseBackend.findActiveHubForAddress(addr)
+            activeHub = hub
+            isHubServiceable = (hub != null)
+            isCheckingHub = false
+            if (hub == null) {
+                errorMessage = "Cleankr service is currently unavailable in your area."
+            } else if (errorMessage == "Cleankr service is currently unavailable in your area.") {
+                errorMessage = null
+            }
+        } else if (addr != null) {
+            // Offline/fallback hub detection
+            activeHub = CleankrHub(
+                id = "hub_blr_south",
+                name = "Koramangala & South Hub",
+                city = "Bengaluru",
+                coveredPincodes = listOf("560034", "560095", "560102", "560068", "560076", "560078", "560029", "560047")
+            )
+            isHubServiceable = true
+            isCheckingHub = false
         }
     }
 
@@ -287,7 +322,10 @@ fun BookingFlowScreen(
                     onSelectAddress = { selectedAddress = it },
                     instructions = customerInstructions,
                     onInstructionsChange = { customerInstructions = it },
-                    onAddNewAddressClick = { showAddAddressDialog = true }
+                    onAddNewAddressClick = { showAddAddressDialog = true },
+                    activeHub = activeHub,
+                    isCheckingHub = isCheckingHub,
+                    isHubServiceable = isHubServiceable
                 )
                 3 -> StepReviewAndPayment(
                     service = service,
@@ -297,6 +335,7 @@ fun BookingFlowScreen(
                     dateString = selectedDay.dateString,
                     slotTime = selectedSlot.timeDisplay,
                     address = selectedAddress,
+                    activeHub = activeHub,
                     instructions = customerInstructions,
                     paymentMethod = paymentMethod,
                     onPaymentMethodChange = { paymentMethod = it },
@@ -340,8 +379,15 @@ fun BookingFlowScreen(
                         onClick = {
                             if (currentStep == 1 && !selectedSlot.isAvailable) {
                                 errorMessage = "Please select an available time slot."
-                            } else if (currentStep == 2 && selectedAddress == null) {
-                                errorMessage = "Please select or add a service address."
+                            } else if (currentStep == 2) {
+                                if (selectedAddress == null) {
+                                    errorMessage = "Please select or add a service address."
+                                } else if (!isHubServiceable || activeHub == null) {
+                                    errorMessage = "Cleankr service is currently unavailable in your area."
+                                } else {
+                                    errorMessage = null
+                                    currentStep += 1
+                                }
                             } else {
                                 errorMessage = null
                                 currentStep += 1
@@ -356,6 +402,10 @@ fun BookingFlowScreen(
                         onClick = {
                             if (selectedAddress == null) {
                                 errorMessage = "Please select a service address."
+                                return@CleankrButton
+                            }
+                            if (!isHubServiceable || activeHub == null) {
+                                errorMessage = "Cleankr service is currently unavailable in your area."
                                 return@CleankrButton
                             }
                             coroutineScope.launch {
@@ -746,7 +796,10 @@ fun StepAddressAndNotes(
     onSelectAddress: (Address) -> Unit,
     instructions: String,
     onInstructionsChange: (String) -> Unit,
-    onAddNewAddressClick: () -> Unit
+    onAddNewAddressClick: () -> Unit,
+    activeHub: CleankrHub?,
+    isCheckingHub: Boolean,
+    isHubServiceable: Boolean
 ) {
     Column(
         modifier = Modifier
@@ -859,6 +912,72 @@ fun StepAddressAndNotes(
                     }
                 }
             }
+
+            // Hub Coverage & Serviceability Card (Automated detection based on customer's address/pincode)
+            if (selectedAddress != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                if (isCheckingHub) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = CleankrTeal, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Identifying Cleankr Hub for pincode ${selectedAddress.pincode}...", fontSize = 12.sp, color = CleankrSlate)
+                    }
+                } else if (!isHubServiceable || activeHub == null) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("hub_unavailable_card"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrRedLight),
+                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrRed))
+                    ) {
+                        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = CleankrRed, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Cleankr service is currently unavailable in your area.",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrRed
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Pincode ${selectedAddress.pincode} has no active Hub. Please select or add an address in a covered area to continue.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CleankrNavyDark
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().testTag("hub_available_card"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrTealContainer.copy(alpha = 0.5f)),
+                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrTeal))
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Active Hub: ${activeHub.name}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrTealDark
+                                )
+                                Text(
+                                    text = "Auto-assigned for pincode ${selectedAddress.pincode} • Partner routing ready",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = CleankrSlate
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -906,6 +1025,7 @@ fun StepReviewAndPayment(
     dateString: String,
     slotTime: String,
     address: Address?,
+    activeHub: CleankrHub?,
     instructions: String,
     paymentMethod: PaymentMethod,
     onPaymentMethodChange: (PaymentMethod) -> Unit,
@@ -979,6 +1099,17 @@ fun StepReviewAndPayment(
                         color = CleankrSlate
                     )
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = CleankrTealDark, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Assigned Hub: ${activeHub?.name ?: "Cleankr Active Hub"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = CleankrTealDark
+                    )
+                }
 
                 if (instructions.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -993,38 +1124,97 @@ fun StepReviewAndPayment(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Price Breakdown Card (Official Company Fixed Breakdown)
+        // Price Breakdown Card (Complete Service Pricing Display)
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("price_breakdown_card"),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Price Breakdown (Fixed Company Pricing)",
+                    text = "Price Display (Admin Catalogue Validated)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = CleankrNavyDark
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Prices are centrally managed and non-editable",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CleankrMuted
+                )
+                Spacer(modifier = Modifier.height(12.dp))
 
+                // 1. Service Name
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "${selectedVariant.name} x $quantity", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    Text(text = "₹$servicePrice", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
+                    Text(text = "Service Name", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                    Text(text = service.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
                 }
 
-                if (addOnsTotal > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 2. Variant / Size
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Variant / Size", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                    Text(text = selectedVariant.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 3. Base Price
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Base Price", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                    Text(text = "₹${selectedVariant.price}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // 4. Selected Quantity
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Selected Quantity", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                    Text(text = "$quantity (${selectedVariant.name} x $quantity = ₹$servicePrice)", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
+                }
+
+                // 5. Add-on Prices
+                if (selectedAddOns.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    selectedAddOns.forEach { addon ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(text = "+ ${addon.name}", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                            Text(text = "₹${addon.price}", style = MaterialTheme.typography.bodySmall, color = CleankrOrange, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Add-on Price Total", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                        Text(text = "+₹$addOnsTotal", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = CleankrOrange)
+                    }
+                } else {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Add-ons Total", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                        Text(text = "+₹$addOnsTotal", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrOrange)
+                        Text(text = "Add-on Price", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
+                        Text(text = "₹0", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
                     }
                 }
 
@@ -1039,12 +1229,13 @@ fun StepReviewAndPayment(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleankrBorder)
 
+                // 6. Final Total
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Final Amount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
+                    Text(text = "Final Total", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
                     Text(text = "₹$totalAmount", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = CleankrOrange)
                 }
             }

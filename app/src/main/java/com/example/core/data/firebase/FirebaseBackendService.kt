@@ -2,16 +2,21 @@ package com.example.core.data.firebase
 
 import android.content.Context
 import android.util.Log
+import com.example.core.model.AddOnItem
 import com.example.core.model.Address
 import com.example.core.model.Booking
 import com.example.core.model.BookingStatus
+import com.example.core.model.CleankrHub
 import com.example.core.model.CustomerUser
 import com.example.core.model.NotificationItem
 import com.example.core.model.PartnerInfo
 import com.example.core.model.PaymentMethod
 import com.example.core.model.PaymentStatus
 import com.example.core.model.ServiceCategory
+import com.example.core.model.ServiceItem
+import com.example.core.model.ServiceVariant
 import com.example.core.model.SupportTicket
+import com.example.core.repository.ServiceRepository
 import com.example.BuildConfig
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -252,6 +257,238 @@ class FirebaseBackendService(private val context: Context) {
         }
     }
 
+    data class PriceValidationResult(
+        val serviceTitle: String,
+        val basePrice: Int,
+        val addOnPrice: Int,
+        val totalAmount: Int
+    )
+
+    val defaultActiveHubs = listOf(
+        CleankrHub(
+            id = "hub_blr_south",
+            name = "Koramangala & South Hub",
+            city = "Bengaluru",
+            coveredPincodes = listOf("560034", "560095", "560102", "560068", "560076", "560078", "560029", "560047"),
+            isActive = true,
+            address = "Koramangala 5th Block, Bengaluru"
+        ),
+        CleankrHub(
+            id = "hub_blr_east",
+            name = "Indiranagar & East Hub",
+            city = "Bengaluru",
+            coveredPincodes = listOf("560038", "560008", "560066", "560037", "560048", "560075", "560093"),
+            isActive = true,
+            address = "100 Feet Rd, Indiranagar, Bengaluru"
+        ),
+        CleankrHub(
+            id = "hub_blr_central",
+            name = "CBD & Central Hub",
+            city = "Bengaluru",
+            coveredPincodes = listOf("560001", "560025", "560027", "560052", "560020", "560002"),
+            isActive = true,
+            address = "MG Road, Bengaluru"
+        ),
+        CleankrHub(
+            id = "hub_blr_north",
+            name = "Hebbal & North Hub",
+            city = "Bengaluru",
+            coveredPincodes = listOf("560024", "560092", "560064", "560045", "560032"),
+            isActive = true,
+            address = "Bellary Rd, Hebbal, Bengaluru"
+        ),
+        CleankrHub(
+            id = "hub_blr_west",
+            name = "Rajajinagar & West Hub",
+            city = "Bengaluru",
+            coveredPincodes = listOf("560010", "560003", "560079", "560040", "560086"),
+            isActive = true,
+            address = "Dr. Rajkumar Rd, Rajajinagar, Bengaluru"
+        )
+    )
+
+    suspend fun getActiveHubs(): List<CleankrHub> {
+        val db = firestore ?: return defaultActiveHubs
+        return try {
+            val snapshot = db.collection(FirebaseConstants.COLLECTION_HUBS)
+                .whereEqualTo("isActive", true)
+                .get()
+                .await()
+            if (!snapshot.isEmpty) {
+                snapshot.documents.mapNotNull { doc ->
+                    try {
+                        val id = doc.getString("id") ?: doc.id
+                        val name = doc.getString("name") ?: "Cleankr Central Hub"
+                        val city = doc.getString("city") ?: "Bengaluru"
+                        val covered = (doc.get("coveredPincodes") as? List<String>) ?: emptyList()
+                        val isActive = doc.getBoolean("isActive") ?: true
+                        val address = doc.getString("address") ?: ""
+                        CleankrHub(id, name, city, covered, isActive, address)
+                    } catch (_: Exception) { null }
+                }
+            } else {
+                defaultActiveHubs
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to load hubs from Firestore: ${e.message}")
+            defaultActiveHubs
+        }
+    }
+
+    suspend fun findActiveHubForPincode(pincode: String): CleankrHub? {
+        val cleanPin = pincode.trim().filter { it.isDigit() }
+        if (cleanPin.length != 6) return null
+        val hubs = getActiveHubs()
+        return hubs.firstOrNull { it.isActive && it.coveredPincodes.contains(cleanPin) }
+    }
+
+    suspend fun findActiveHubForAddress(address: Address): CleankrHub? {
+        return findActiveHubForPincode(address.pincode)
+    }
+
+    suspend fun validateAndCalculatePrice(
+        serviceId: String,
+        variantName: String,
+        quantity: Int,
+        selectedAddOnNames: List<String>
+    ): PriceValidationResult {
+        val db = firestore
+        var serviceDoc: DocumentSnapshot? = null
+        if (db != null) {
+            try {
+                val doc = db.collection(FirebaseConstants.COLLECTION_SERVICES).document(serviceId).get().await()
+                if (doc.exists()) {
+                    serviceDoc = doc
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Service fetch error from Firestore: ${e.message}")
+            }
+        }
+
+        val catalogService = ServiceRepository().getServiceById(serviceId)
+            ?: throw IllegalStateException("Invalid service requested: $serviceId")
+
+        val title = serviceDoc?.getString("title") ?: catalogService.title
+
+        val basePrice = if (serviceDoc != null) {
+            val variantsList = serviceDoc.get("variants") as? List<Map<String, Any>>
+            val matched = variantsList?.firstOrNull { it["name"] == variantName }
+            (matched?.get("price") as? Number)?.toInt()
+                ?: catalogService.variants.firstOrNull { it.name == variantName }?.price
+                ?: catalogService.basePrice
+        } else {
+            catalogService.variants.firstOrNull { it.name == variantName }?.price
+                ?: catalogService.basePrice
+        }
+
+        val addOnPrice = if (serviceDoc != null) {
+            val addOnsList = serviceDoc.get("addOns") as? List<Map<String, Any>>
+            selectedAddOnNames.sumOf { name ->
+                val matched = addOnsList?.firstOrNull { it["name"] == name }
+                (matched?.get("price") as? Number)?.toInt()
+                    ?: catalogService.addOns.firstOrNull { it.name == name }?.price
+                    ?: 0
+            }
+        } else {
+            selectedAddOnNames.sumOf { name ->
+                catalogService.addOns.firstOrNull { it.name == name }?.price ?: 0
+            }
+        }
+
+        val verifiedTotal = (basePrice * quantity.coerceAtLeast(1)) + addOnPrice
+
+        return PriceValidationResult(
+            serviceTitle = title,
+            basePrice = basePrice,
+            addOnPrice = addOnPrice,
+            totalAmount = verifiedTotal
+        )
+    }
+
+    /**
+     * Real-time stream of the service catalog from Firestore 'services' collection.
+     * Guarantees prices and variants always reflect Admin-controlled values.
+     */
+    fun observeServicesCatalog(): Flow<List<ServiceItem>> = callbackFlow {
+        val db = firestore
+        if (db == null) {
+            close()
+            return@callbackFlow
+        }
+
+        val listener = db.collection(FirebaseConstants.COLLECTION_SERVICES)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(tag, "Services catalog listener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val defaultCatalog = ServiceRepository().getAllServices()
+                    val parsedServices = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val id = doc.getString("id") ?: doc.id
+                            val defaultItem = defaultCatalog.firstOrNull { it.id == id }
+                            val categoryStr = doc.getString("category") ?: defaultItem?.category?.name ?: "BATHROOM"
+                            val cat = try { ServiceCategory.valueOf(categoryStr) } catch (_: Exception) { defaultItem?.category ?: ServiceCategory.BATHROOM }
+                            val title = doc.getString("title") ?: defaultItem?.title ?: "Cleaning Service"
+                            val shortDesc = doc.getString("shortDesc") ?: defaultItem?.shortDesc ?: ""
+                            val fullDesc = doc.getString("fullDesc") ?: defaultItem?.fullDesc ?: ""
+                            val rating = (doc.getDouble("rating") ?: defaultItem?.rating?.toDouble() ?: 4.88).toFloat()
+                            val reviewsCount = (doc.getLong("reviewsCount") ?: defaultItem?.reviewsCount?.toLong() ?: 1000).toInt()
+                            val durationText = doc.getString("durationText") ?: defaultItem?.durationText ?: "60 mins"
+                            val basePrice = (doc.getLong("basePrice") ?: defaultItem?.basePrice?.toLong() ?: 450).toInt()
+
+                            val variantsList = (doc.get("variants") as? List<Map<String, Any>>)?.mapNotNull { vMap ->
+                                val vId = vMap["id"] as? String ?: return@mapNotNull null
+                                val vName = vMap["name"] as? String ?: return@mapNotNull null
+                                val vPrice = (vMap["price"] as? Number)?.toInt() ?: return@mapNotNull null
+                                val vDur = vMap["durationText"] as? String ?: "60 mins"
+                                ServiceVariant(vId, vName, vPrice, vDur)
+                            } ?: defaultItem?.variants ?: emptyList()
+
+                            val addOnsList = (doc.get("addOns") as? List<Map<String, Any>>)?.mapNotNull { aMap ->
+                                val aId = aMap["id"] as? String ?: return@mapNotNull null
+                                val aName = aMap["name"] as? String ?: return@mapNotNull null
+                                val aPrice = (aMap["price"] as? Number)?.toInt() ?: return@mapNotNull null
+                                val aDesc = aMap["description"] as? String ?: ""
+                                AddOnItem(aId, aName, aPrice, aDesc)
+                            } ?: defaultItem?.addOns ?: emptyList()
+
+                            val included = (doc.get("included") as? List<String>) ?: defaultItem?.included ?: emptyList()
+                            val notIncluded = (doc.get("notIncluded") as? List<String>) ?: defaultItem?.notIncluded ?: emptyList()
+                            val importantNotes = (doc.get("importantNotes") as? List<String>) ?: defaultItem?.importantNotes ?: emptyList()
+
+                            ServiceItem(
+                                id = id,
+                                category = cat,
+                                title = title,
+                                shortDesc = shortDesc,
+                                fullDesc = fullDesc,
+                                rating = rating,
+                                reviewsCount = reviewsCount,
+                                durationText = durationText,
+                                basePrice = basePrice,
+                                variants = variantsList,
+                                addOns = addOnsList,
+                                included = included,
+                                notIncluded = notIncluded,
+                                importantNotes = importantNotes
+                            )
+                        } catch (e: Exception) {
+                            Log.w(tag, "Error parsing service doc ${doc.id}: ${e.message}")
+                            null
+                        }
+                    }
+                    if (parsedServices.isNotEmpty()) {
+                        trySend(parsedServices)
+                    }
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
     // -------------------------------------------------------------------------
     // 2. Customer Bookings (Shared with Admin & Partner Ecosystem)
     // -------------------------------------------------------------------------
@@ -260,6 +497,24 @@ class FirebaseBackendService(private val context: Context) {
         val db = firestore ?: return Result.failure(
             IllegalStateException("Backend connection not configured. Please ensure google-services.json is attached.")
         )
+
+        // 1. Server-Side Hub Validation (Area Must Have Active Cleankr Hub)
+        val activeHub = findActiveHubForAddress(booking.address)
+            ?: return Result.failure(
+                IllegalStateException("Cleankr service is currently unavailable in your area.")
+            )
+
+        // 2. Server-Side Price Validation (Strictly using Admin-Controlled Catalog)
+        val priceValidation = try {
+            validateAndCalculatePrice(
+                serviceId = booking.serviceId,
+                variantName = booking.variantName,
+                quantity = booking.quantity,
+                selectedAddOnNames = booking.selectedAddOns
+            )
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
 
         return try {
             val bookingDocRef = db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(booking.id)
@@ -276,28 +531,41 @@ class FirebaseBackendService(private val context: Context) {
                 "instructions" to booking.address.instructions
             )
 
+            // Price snapshot and hub data strictly validated by backend
             val bookingData = hashMapOf<String, Any?>(
                 FirebaseConstants.FIELD_BOOKING_ID to booking.id,
                 FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
                 "customerName" to (currentFirebaseUser?.displayName ?: "Cleankr Customer"),
                 "customerPhone" to (currentFirebaseUser?.phoneNumber ?: booking.address.contactPhone),
                 FirebaseConstants.FIELD_SERVICE_ID to booking.serviceId,
-                "serviceTitle" to booking.serviceTitle,
+                FirebaseConstants.FIELD_SERVICE_NAME to priceValidation.serviceTitle,
+                "serviceTitle" to priceValidation.serviceTitle,
                 "category" to booking.category.name,
+                FirebaseConstants.FIELD_VARIANT to booking.variantName,
                 "variantName" to booking.variantName,
-                "quantity" to booking.quantity,
+                FirebaseConstants.FIELD_QUANTITY to booking.quantity,
+                FirebaseConstants.FIELD_ADD_ONS to booking.selectedAddOns,
                 "selectedAddOns" to booking.selectedAddOns,
-                "addOnsTotal" to booking.addOnsTotal,
-                "servicePrice" to booking.servicePrice,
-                "totalAmount" to booking.totalAmount,
+                FirebaseConstants.FIELD_BASE_PRICE to priceValidation.basePrice,
+                FirebaseConstants.FIELD_ADD_ON_PRICE to priceValidation.addOnPrice,
+                "addOnsTotal" to priceValidation.addOnPrice,
+                "servicePrice" to (priceValidation.basePrice * booking.quantity),
+                FirebaseConstants.FIELD_TOTAL_AMOUNT to priceValidation.totalAmount,
+                "totalAmount" to priceValidation.totalAmount,
+                FirebaseConstants.FIELD_BOOKING_DATE to booking.bookingDate,
                 "bookingDate" to booking.bookingDate,
+                FirebaseConstants.FIELD_BOOKING_TIME to booking.slotTime,
                 "slotTime" to booking.slotTime,
+                FirebaseConstants.FIELD_ADDRESS to addressMap,
                 "address" to addressMap,
+                FirebaseConstants.FIELD_PINCODE to booking.address.pincode,
+                FirebaseConstants.FIELD_HUB_ID to activeHub.id,
+                FirebaseConstants.FIELD_HUB_NAME to activeHub.name,
                 "instructions" to booking.instructions,
                 "paymentMethod" to booking.paymentMethod.name,
                 "paymentStatus" to booking.paymentStatus.name,
                 FirebaseConstants.FIELD_STATUS to FirebaseConstants.STATUS_BOOKED,
-                // Partner fields strictly null on initial creation; only Admin/Partner sets them
+                // Partner fields strictly null on initial creation; only Admin/Hub Partner routes them
                 FirebaseConstants.FIELD_PARTNER_ID to null,
                 "partnerName" to null,
                 "partnerPhone" to null,
@@ -305,11 +573,11 @@ class FirebaseBackendService(private val context: Context) {
                 "partnerJobs" to null,
                 "startPin" to booking.startPin,
                 FirebaseConstants.FIELD_CREATED_AT to booking.createdAt,
-                FirebaseConstants.FIELD_UPDATED_AT to booking.updatedAt,
+                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis(),
                 "source" to "customer_android_app"
             )
 
-            // Write booking
+            // Write booking with snapshot
             bookingDocRef.set(bookingData).await()
 
             // Write initial status audit event to 'booking_status'
@@ -320,7 +588,7 @@ class FirebaseBackendService(private val context: Context) {
                 "updatedBy" to booking.customerId,
                 "role" to FirebaseConstants.ROLE_CUSTOMER,
                 "timestamp" to System.currentTimeMillis(),
-                "note" to "Booking requested by customer"
+                "note" to "Booking requested by customer in ${activeHub.name}"
             )
             db.collection(FirebaseConstants.COLLECTION_BOOKING_STATUS).add(statusEvent).await()
 
@@ -329,7 +597,7 @@ class FirebaseBackendService(private val context: Context) {
                 "paymentId" to "pay_${booking.id}",
                 FirebaseConstants.FIELD_BOOKING_ID to booking.id,
                 FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
-                "amount" to booking.totalAmount,
+                "amount" to priceValidation.totalAmount,
                 "method" to booking.paymentMethod.name,
                 "status" to booking.paymentStatus.name,
                 "createdAt" to System.currentTimeMillis()
@@ -341,7 +609,7 @@ class FirebaseBackendService(private val context: Context) {
                 "notificationId" to "notif_${booking.id}_confirm",
                 FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
                 "title" to "Booking Confirmed! 🎉",
-                "message" to "Your order for ${booking.serviceTitle} (${booking.id}) has been recorded. Admin will assign a partner soon.",
+                "message" to "Your order for ${priceValidation.serviceTitle} (${booking.id}) has been assigned to ${activeHub.name}.",
                 "timestamp" to System.currentTimeMillis(),
                 "type" to "BOOKING",
                 "isRead" to false,
@@ -855,6 +1123,11 @@ class FirebaseBackendService(private val context: Context) {
             val userRating = doc.getDouble("userRating")?.toFloat()
             val userReview = doc.getString("userReview")
 
+            val basePrice = (doc.getLong("basePrice") ?: servicePrice.toLong()).toInt()
+            val addOnPrice = (doc.getLong("addOnPrice") ?: addOnsTotal.toLong()).toInt()
+            val hubId = doc.getString("hubId") ?: doc.getString(FirebaseConstants.FIELD_HUB_ID)
+            val hubName = doc.getString("hubName") ?: doc.getString(FirebaseConstants.FIELD_HUB_NAME)
+
             Booking(
                 id = id,
                 customerId = customerId,
@@ -867,6 +1140,8 @@ class FirebaseBackendService(private val context: Context) {
                 addOnsTotal = addOnsTotal,
                 servicePrice = servicePrice,
                 totalAmount = totalAmount,
+                basePrice = basePrice,
+                addOnPrice = addOnPrice,
                 bookingDate = bookingDate,
                 slotTime = slotTime,
                 address = address,
@@ -875,6 +1150,8 @@ class FirebaseBackendService(private val context: Context) {
                 paymentStatus = paymentStatus,
                 status = status,
                 partner = partner,
+                hubId = hubId,
+                hubName = hubName,
                 startPin = startPin,
                 createdAt = createdAt,
                 updatedAt = updatedAt,

@@ -99,6 +99,15 @@ enum class PaymentStatus(val displayName: String) {
     REFUNDED("Refund Processed")
 }
 
+data class CleankrHub(
+    val id: String,
+    val name: String,
+    val city: String,
+    val coveredPincodes: List<String>,
+    val isActive: Boolean = true,
+    val address: String = ""
+)
+
 data class Booking(
     val id: String,
     val customerId: String = "cust_001",
@@ -111,6 +120,8 @@ data class Booking(
     val addOnsTotal: Int,
     val servicePrice: Int,
     val totalAmount: Int,
+    val basePrice: Int = servicePrice,
+    val addOnPrice: Int = addOnsTotal,
     val bookingDate: String,
     val slotTime: String,
     val address: Address,
@@ -119,6 +130,8 @@ data class Booking(
     val paymentStatus: PaymentStatus,
     val status: BookingStatus,
     val partner: PartnerInfo? = null,
+    val hubId: String? = null,
+    val hubName: String? = null,
     val startPin: String = "4821",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),

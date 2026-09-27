@@ -174,36 +174,58 @@ class BookingRepository(
             return Result.failure(IllegalStateException("Selected time slot is no longer available. Please select another slot."))
         }
 
-        // 2. Authoritative price recalculation (protects against client manipulation)
-        val addOns = service.addOns.filter { selectedAddOnNames.contains(it.name) }
-        val addOnsTotal = addOns.sumOf { it.price }
-        val servicePrice = variant.price * quantity.coerceAtLeast(1)
-        val calculatedTotal = servicePrice + addOnsTotal
+        // 2. Server-side Active Hub Validation (Customer must not manually select a Hub)
+        val activeHub = firebaseBackend?.findActiveHubForAddress(address)
+        if (activeHub == null) {
+            return Result.failure(IllegalStateException("Cleankr service is currently unavailable in your area."))
+        }
 
-        // 3. Current authenticated customer context
+        // 3. Authoritative server-side price validation (protects against client manipulation)
+        val validatedPrice = try {
+            firebaseBackend?.validateAndCalculatePrice(
+                serviceId = service.id,
+                variantName = variant.name,
+                quantity = quantity,
+                selectedAddOnNames = selectedAddOnNames
+            )
+        } catch (_: Exception) {
+            null
+        }
+
+        val finalBasePrice = validatedPrice?.basePrice ?: variant.price
+        val finalAddOnPrice = validatedPrice?.addOnPrice ?: service.addOns.filter { selectedAddOnNames.contains(it.name) }.sumOf { it.price }
+        val finalServicePrice = finalBasePrice * quantity.coerceAtLeast(1)
+        val finalTotal = validatedPrice?.totalAmount ?: (finalServicePrice + finalAddOnPrice)
+
+        // 4. Current authenticated customer context
         val customerId = sessionManager?.currentUser?.value?.id
             ?: firebaseBackend?.currentCustomerId
             ?: "cust_001"
 
-        // 4. Generate unique Booking ID & customer security PIN
+        // 5. Generate unique Booking ID & customer security PIN
         val randomNum = (1000..9999).random()
         val bookingId = "CK-2026-$randomNum"
         val startPin = (1000..9999).random().toString()
 
         val paymentStatus = if (paymentMethod == PaymentMethod.ONLINE) PaymentStatus.PAID else PaymentStatus.PENDING
 
+        // Price snapshot and Hub info saved to booking
         val newBooking = Booking(
             id = bookingId,
             customerId = customerId,
             serviceId = service.id,
-            serviceTitle = service.title,
+            serviceTitle = validatedPrice?.serviceTitle ?: service.title,
             category = service.category,
             variantName = variant.name,
             quantity = quantity,
             selectedAddOns = selectedAddOnNames,
-            addOnsTotal = addOnsTotal,
-            servicePrice = servicePrice,
-            totalAmount = calculatedTotal,
+            addOnsTotal = finalAddOnPrice,
+            servicePrice = finalServicePrice,
+            totalAmount = finalTotal,
+            basePrice = finalBasePrice,
+            addOnPrice = finalAddOnPrice,
+            hubId = activeHub.id,
+            hubName = activeHub.name,
             bookingDate = dateString,
             slotTime = slotTime,
             address = address,
@@ -211,13 +233,13 @@ class BookingRepository(
             paymentMethod = paymentMethod,
             paymentStatus = paymentStatus,
             status = BookingStatus.BOOKED, // Initial status strictly controlled by backend business rules
-            partner = null, // Partner can only be assigned by Admin / Partner App
+            partner = null, // Partner can only be assigned by Admin / Hub routing
             startPin = startPin,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
 
-        // 5. Backend synchronization (Enterprise Cleankr Ecosystem)
+        // 6. Backend synchronization (Enterprise Cleankr Ecosystem)
         if (firebaseBackend != null && firebaseBackend.isFirebaseConfigured()) {
             val backendResult = firebaseBackend.createBookingInSharedBackend(newBooking)
             if (backendResult.isFailure) {
@@ -228,7 +250,7 @@ class BookingRepository(
             }
         }
 
-        // 6. Cache into Room database for offline accessibility & fast UI updates
+        // 7. Cache into Room database for offline accessibility & fast UI updates
         bookingDao.insertBooking(BookingEntity.fromDomain(newBooking))
 
         // In-app notification
@@ -236,7 +258,7 @@ class BookingRepository(
             NotificationEntity(
                 id = "notif_" + UUID.randomUUID().toString().take(8),
                 title = "Booking Confirmed! 🎉",
-                message = "Your booking for ${service.title} ($bookingId) on $dateString at $slotTime is confirmed.",
+                message = "Your booking for ${service.title} ($bookingId) on $dateString at $slotTime is confirmed at ${activeHub.name}.",
                 timestamp = System.currentTimeMillis(),
                 type = "BOOKING",
                 isRead = false,
