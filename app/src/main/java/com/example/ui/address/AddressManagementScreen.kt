@@ -234,8 +234,8 @@ fun AddEditAddressDialog(
     var flatNo by remember { mutableStateOf("") }
     var street by remember { mutableStateOf("") }
     var landmark by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("Bengaluru") }
-    var pincode by remember { mutableStateOf("560095") }
+    var city by remember { mutableStateOf("Pune") }
+    var pincode by remember { mutableStateOf("411038") }
     var contactPhone by remember { mutableStateOf("+91 98765 43210") }
     var isDefault by remember { mutableStateOf(true) }
     var isDetectingLocation by remember { mutableStateOf(false) }
@@ -409,7 +409,7 @@ fun AddEditAddressDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "⚠ Pincode outside active hubs (Try 560034, 560095, 560001, 560038)",
+                                text = "⚠ Pincode outside active hubs (Try 411038 Kothrud, 411045 Baner, 411014 Viman Nagar, 411057 Hinjawadi, 411028 Hadapsar)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CleankrError,

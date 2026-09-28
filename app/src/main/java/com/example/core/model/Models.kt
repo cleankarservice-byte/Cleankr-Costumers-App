@@ -130,7 +130,7 @@ data class Address(
     val flatNo: String = "",
     val street: String = "",
     val landmark: String = "",
-    val city: String = "Bengaluru",
+    val city: String = "Pune",
     val pincode: String = "",
     val contactPhone: String = "",
     val instructions: String = "",
