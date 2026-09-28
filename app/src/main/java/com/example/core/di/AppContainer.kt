@@ -5,52 +5,43 @@ import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.data.local.AppDatabase
 import com.example.core.data.session.SessionManager
 import com.example.core.repository.AddressRepository
+import com.example.core.repository.AdminHubRepository
 import com.example.core.repository.BookingRepository
 import com.example.core.repository.NotificationRepository
 import com.example.core.repository.ServiceRepository
 import com.example.core.repository.SlotRepository
 import com.example.core.repository.SupportRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
-class AppContainer(context: Context) {
-    val database = AppDatabase.getDatabase(context)
-    val sessionManager = SessionManager(context)
-    val firebaseBackend = FirebaseBackendService(context)
+class AppContainer(val context: Context) {
+    val database: AppDatabase by lazy { AppDatabase.getInstance(context) }
+    val sessionManager: SessionManager by lazy { SessionManager(context) }
+    val firebaseBackend: FirebaseBackendService by lazy { FirebaseBackendService(context) }
 
-    val serviceRepository = ServiceRepository(firebaseBackend)
-    val slotRepository = SlotRepository()
-    val addressRepository = AddressRepository(database.addressDao(), firebaseBackend, sessionManager)
-    val notificationRepository = NotificationRepository(database.notificationDao(), firebaseBackend)
-    val bookingRepository = BookingRepository(
-        database.bookingDao(),
-        database.notificationDao(),
-        slotRepository,
-        serviceRepository,
-        firebaseBackend,
-        sessionManager
-    )
-    val supportRepository = SupportRepository(database.supportTicketDao(), firebaseBackend, sessionManager)
+    val serviceRepository: ServiceRepository by lazy {
+        ServiceRepository(firebaseBackend)
+    }
 
-    init {
-        // Initialize default seed data asynchronously and attach real-time listeners
-        CoroutineScope(Dispatchers.IO).launch {
-            addressRepository.ensureInitialAddresses()
-            bookingRepository.ensureInitialData()
-            notificationRepository.ensureInitialNotifications()
+    val addressRepository: AddressRepository by lazy {
+        AddressRepository(database.addressDao())
+    }
 
-            // Attach real-time Firestore listeners and sync FCM token for logged in customer
-            val customerId = sessionManager.currentUser.value?.id ?: "cust_001"
-            addressRepository.startRealtimeSync(customerId, this)
-            bookingRepository.startRealtimeSync(customerId, this)
-            notificationRepository.startRealtimeSync(customerId, this)
-            serviceRepository.startRealtimeSync(this)
+    val notificationRepository: NotificationRepository by lazy {
+        NotificationRepository(database.notificationDao())
+    }
 
-            // Proactively sync FCM token with Firebase profile
-            if (sessionManager.isLoggedIn.value) {
-                firebaseBackend.syncCurrentFcmToken(customerId)
-            }
-        }
+    val slotRepository: SlotRepository by lazy {
+        SlotRepository()
+    }
+
+    val supportRepository: SupportRepository by lazy {
+        SupportRepository(database.supportTicketDao())
+    }
+
+    val bookingRepository: BookingRepository by lazy {
+        BookingRepository(database.bookingDao(), notificationRepository, firebaseBackend)
+    }
+
+    val adminHubRepository: AdminHubRepository by lazy {
+        AdminHubRepository(database.crossHubAttemptDao(), notificationRepository, firebaseBackend)
     }
 }

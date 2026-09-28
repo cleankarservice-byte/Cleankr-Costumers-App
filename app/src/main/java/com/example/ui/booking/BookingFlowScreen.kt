@@ -1,1487 +1,883 @@
 package com.example.ui.booking
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Money
-import androidx.compose.material.icons.filled.Notes
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.config.CleankrLegalConfig
 import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.model.AddOnItem
 import com.example.core.model.Address
-import com.example.core.model.Booking
 import com.example.core.model.CleankrHub
-import com.example.core.model.PaymentMethod
 import com.example.core.model.ServiceItem
 import com.example.core.model.ServiceVariant
-import com.example.core.model.TimeSlot
-import com.example.core.repository.AddressRepository
+import com.example.core.repository.AdminHubRepository
 import com.example.core.repository.BookingRepository
-import com.example.core.repository.CalendarDay
-import com.example.core.repository.ServiceRepository
 import com.example.core.repository.SlotRepository
-import com.example.ui.components.CleankrButton
-import com.example.ui.components.CleankrStandardTopBar
-import com.example.ui.components.ErrorBanner
-import com.example.ui.theme.CleankrBackground
-import com.example.ui.theme.CleankrBorder
-import com.example.ui.theme.CleankrGreen
-import com.example.ui.theme.CleankrGreenLight
-import com.example.ui.theme.CleankrMuted
-import com.example.ui.theme.CleankrNavyDark
-import com.example.ui.theme.CleankrOrange
-import com.example.ui.theme.CleankrOrangeContainer
-import com.example.ui.theme.CleankrRed
-import com.example.ui.theme.CleankrRedLight
-import com.example.ui.theme.CleankrSlate
-import com.example.ui.theme.CleankrTeal
-import com.example.ui.theme.CleankrTealContainer
-import com.example.ui.theme.CleankrTealDark
-import kotlinx.coroutines.delay
+import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookingFlowScreen(
-    serviceId: String,
-    serviceRepository: ServiceRepository,
-    slotRepository: SlotRepository,
-    addressRepository: AddressRepository,
+    service: ServiceItem,
+    savedAddresses: List<Address>,
     bookingRepository: BookingRepository,
-    firebaseBackend: FirebaseBackendService? = null,
-    onBookingCompleted: (bookingId: String) -> Unit,
-    onBackClick: () -> Unit
+    slotRepository: SlotRepository,
+    firebaseBackend: FirebaseBackendService,
+    customerId: String,
+    adminHubRepository: AdminHubRepository? = null,
+    customerName: String = "Valued Customer",
+    customerPhone: String = "",
+    onBookingSuccess: (String) -> Unit,
+    onNavigateBack: () -> Unit,
+    onAddNewAddressClick: () -> Unit
 ) {
-    val service = serviceRepository.getServiceById(serviceId)
-    if (service == null) {
-        onBackClick()
-        return
-    }
-
     val coroutineScope = rememberCoroutineScope()
-    val addresses by addressRepository.addresses.collectAsState(initial = emptyList())
-    val defaultAddress by addressRepository.defaultAddress.collectAsState(initial = null)
+    var currentStep by remember { mutableStateOf(1) } // 1: Variant, 2: Slot, 3: Address, 4: Review
 
-    // Booking Wizard Steps:
-    // 0: Variant & Addons
-    // 1: Date & Time Slot
-    // 2: Service Address & Instructions
-    // 3: Review & Payment
-    var currentStep by remember { mutableIntStateOf(0) }
-
-    // Selections
-    var selectedVariant by remember { mutableStateOf(service.variants.first()) }
+    var selectedVariant by remember { mutableStateOf(service.variants.firstOrNull() ?: ServiceVariant("v1", service.title, "", service.basePrice, service.durationMinutes)) }
+    var quantity by remember { mutableStateOf(1) }
     val selectedAddOns = remember { mutableStateListOf<AddOnItem>() }
-    var quantity by remember { mutableIntStateOf(1) }
 
-    val upcomingDays = remember { slotRepository.getUpcomingDays(14) }
-    var selectedDay by remember { mutableStateOf(upcomingDays.firstOrNull { it.isAvailable } ?: upcomingDays.first()) }
+    val upcomingDates = remember { slotRepository.getUpcomingDates() }
+    val availableSlots = remember { slotRepository.getAvailableTimeSlots() }
+    var selectedDate by remember { mutableStateOf(upcomingDates.firstOrNull()?.second ?: "Today") }
+    var selectedSlot by remember { mutableStateOf(availableSlots.firstOrNull() ?: "10:00 AM - 12:00 PM") }
 
-    var timeSlots by remember { mutableStateOf(slotRepository.getTimeSlotsForDate(selectedDay.dateString)) }
-    var selectedSlot by remember { mutableStateOf(timeSlots.firstOrNull { it.isAvailable } ?: timeSlots.first()) }
-
-    var selectedAddress by remember { mutableStateOf<Address?>(defaultAddress ?: addresses.firstOrNull()) }
-    var customerInstructions by remember { mutableStateOf("") }
-    var paymentMethod by remember { mutableStateOf(PaymentMethod.ONLINE) }
-
-    // Active Hub detection state (Customer must not manually select a Hub)
-    var activeHub by remember { mutableStateOf<CleankrHub?>(null) }
-    var isCheckingHub by remember { mutableStateOf(false) }
-    var isHubServiceable by remember { mutableStateOf(true) }
-
-    var isCreatingBooking by remember { mutableStateOf(false) }
+    var selectedAddress by remember { mutableStateOf(savedAddresses.firstOrNull { it.isDefault } ?: savedAddresses.firstOrNull()) }
+    var instructions by remember { mutableStateOf("") }
+    var paymentMethod by remember { mutableStateOf("COD") }
+    var isBookingCreating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isTermsAccepted by remember { mutableStateOf(false) }
+    var activeLegalDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    // Quick address form dialog state
-    var showAddAddressDialog by remember { mutableStateOf(false) }
-
-    // Keep selectedAddress updated when defaultAddress loads
-    LaunchedEffect(defaultAddress, addresses) {
-        if (selectedAddress == null) {
-            selectedAddress = defaultAddress ?: addresses.firstOrNull()
-        }
+    // Active Hub check for the currently selected address
+    val activeHub: CleankrHub? = remember(selectedAddress) {
+        selectedAddress?.let { firebaseBackend.findActiveHubForAddress(it) }
     }
+    val isHubServiceable = activeHub != null
 
-    // Automatically detect and bind the matching ACTIVE Cleankr Hub for the selected address
-    LaunchedEffect(selectedAddress) {
-        val addr = selectedAddress
-        if (addr != null && firebaseBackend != null) {
-            isCheckingHub = true
-            val hub = firebaseBackend.findActiveHubForAddress(addr)
-            activeHub = hub
-            isHubServiceable = (hub != null)
-            isCheckingHub = false
-            if (hub == null) {
-                errorMessage = "Cleankr service is currently unavailable in your area."
-            } else if (errorMessage == "Cleankr service is currently unavailable in your area.") {
-                errorMessage = null
-            }
-        } else if (addr != null) {
-            // Offline/fallback hub detection
-            activeHub = CleankrHub(
-                id = "hub_blr_south",
-                name = "Koramangala & South Hub",
-                city = "Bengaluru",
-                coveredPincodes = listOf("560034", "560095", "560102", "560068", "560076", "560078", "560029", "560047")
+    // Base, Add-ons & Total Calculations
+    val basePriceTotal = selectedVariant.price * quantity
+    val addOnsTotal = selectedAddOns.sumOf { it.price }
+    val grandTotal = basePriceTotal + addOnsTotal
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "Book ${service.title}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CleankrNavy
+                        )
+                        Text(
+                            text = "Step $currentStep of 4",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CleankrSlate
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        if (currentStep > 1) currentStep-- else onNavigateBack()
+                    }) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = CleankrCardSurface)
             )
-            isHubServiceable = true
-            isCheckingHub = false
-        }
-    }
+        },
+        bottomBar = {
+            Surface(
+                color = CleankrCardSurface,
+                shadowElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Total Amount", fontSize = 11.sp, color = CleankrSlate)
+                        Text(
+                            text = "₹$grandTotal",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = CleankrTeal
+                        )
+                    }
 
-    // Refresh time slots when date changes
-    LaunchedEffect(selectedDay) {
-        timeSlots = slotRepository.getTimeSlotsForDate(selectedDay.dateString)
-        val valid = timeSlots.firstOrNull { it.isAvailable }
-        if (valid != null) {
-            selectedSlot = valid
-        }
-    }
-
-    // Server-side calculated totals
-    val addOnsTotal = remember(selectedAddOns.toList()) { selectedAddOns.sumOf { it.price } }
-    val servicePrice = remember(selectedVariant, quantity) { selectedVariant.price * quantity }
-    val totalAmount = remember(servicePrice, addOnsTotal) { servicePrice + addOnsTotal }
-
-    val stepTitles = listOf("Package & Add-ons", "Date & Time Slot", "Address & Notes", "Review & Confirm")
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CleankrBackground)
-    ) {
-        CleankrStandardTopBar(
-            title = stepTitles[currentStep],
-            onBackClick = {
-                if (currentStep > 0) currentStep -= 1
-                else onBackClick()
-            }
-        )
-
-        // Step Progress Indicator
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            stepTitles.forEachIndexed { index, title ->
-                val isCompleted = index < currentStep
-                val isCurrent = index == currentStep
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when {
-                                    isCompleted -> CleankrGreen
-                                    isCurrent -> CleankrOrange
-                                    else -> CleankrBorder
+                    Button(
+                        onClick = {
+                            when (currentStep) {
+                                1 -> currentStep = 2
+                                2 -> currentStep = 3
+                                3 -> {
+                                    if (selectedAddress == null) {
+                                        errorMessage = "Please add or select a service address"
+                                    } else if (!isHubServiceable) {
+                                        errorMessage = "Selected address is outside Cleankr covered hubs (${selectedAddress?.pincode})"
+                                    } else {
+                                        errorMessage = null
+                                        currentStep = 4
+                                    }
                                 }
-                            ),
-                        contentAlignment = Alignment.Center
+                                4 -> {
+                                    if (selectedAddress == null) {
+                                        errorMessage = "Please select an address"
+                                        return@Button
+                                    }
+                                    if (!isTermsAccepted) {
+                                        errorMessage = "Please read and verify Cleankr Terms & Conditions and Privacy Policy before booking."
+                                        return@Button
+                                    }
+                                    isBookingCreating = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val booking = bookingRepository.createBooking(
+                                                customerId = customerId,
+                                                serviceId = service.id,
+                                                serviceTitle = service.title,
+                                                categoryName = service.categoryName,
+                                                variantName = selectedVariant.name,
+                                                quantity = quantity,
+                                                selectedAddOns = selectedAddOns.toList(),
+                                                bookingDate = selectedDate,
+                                                slotTime = selectedSlot,
+                                                address = selectedAddress!!,
+                                                instructions = instructions,
+                                                paymentMethod = paymentMethod
+                                            )
+                                            isBookingCreating = false
+                                            onBookingSuccess(booking.id)
+                                        } catch (e: Exception) {
+                                            isBookingCreating = false
+                                            errorMessage = e.message ?: "Booking failed. Please try again."
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isBookingCreating,
+                        colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("booking_flow_action_button")
                     ) {
-                        if (isCompleted) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
+                        if (isBookingCreating) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
                         } else {
                             Text(
-                                text = "${index + 1}",
-                                fontSize = 11.sp,
+                                text = if (currentStep == 4) {
+                                    if (isTermsAccepted) "Confirm & Book" else "Verify & Book"
+                                } else "Continue",
                                 fontWeight = FontWeight.Bold,
-                                color = if (isCurrent) Color.White else CleankrMuted
+                                fontSize = 15.sp
                             )
                         }
                     }
-                    if (index < stepTitles.size - 1) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .width(36.dp)
-                                .height(2.dp)
-                                .background(if (index < currentStep) CleankrGreen else CleankrBorder)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
                 }
             }
         }
-
-        if (errorMessage != null) {
-            Box(modifier = Modifier.padding(16.dp)) {
-                ErrorBanner(errorMessage = errorMessage!!, onRetry = { errorMessage = null })
-            }
-        }
-
-        // Animated Step Contents
-        Box(
+    ) { padding ->
+        LazyColumn(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(padding)
+                .background(CleankrBackground),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            when (currentStep) {
-                0 -> StepVariantAndAddons(
-                    service = service,
-                    selectedVariant = selectedVariant,
-                    onVariantChange = { selectedVariant = it },
-                    selectedAddOns = selectedAddOns,
-                    onToggleAddOn = { addon ->
-                        if (selectedAddOns.any { it.id == addon.id }) selectedAddOns.removeAll { it.id == addon.id }
-                        else selectedAddOns.add(addon)
+            if (errorMessage != null) {
+                item {
+                    Surface(
+                        color = Color(0xFFFEE2E2),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = CleankrError)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(errorMessage ?: "", color = CleankrError, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
-                )
-                1 -> StepDateAndTimeSlot(
-                    upcomingDays = upcomingDays,
-                    selectedDay = selectedDay,
-                    onSelectDay = { selectedDay = it },
-                    timeSlots = timeSlots,
-                    selectedSlot = selectedSlot,
-                    onSelectSlot = { selectedSlot = it }
-                )
-                2 -> StepAddressAndNotes(
-                    addresses = addresses,
-                    selectedAddress = selectedAddress,
-                    onSelectAddress = { selectedAddress = it },
-                    instructions = customerInstructions,
-                    onInstructionsChange = { customerInstructions = it },
-                    onAddNewAddressClick = { showAddAddressDialog = true },
-                    activeHub = activeHub,
-                    isCheckingHub = isCheckingHub,
-                    isHubServiceable = isHubServiceable
-                )
-                3 -> StepReviewAndPayment(
-                    service = service,
-                    selectedVariant = selectedVariant,
-                    quantity = quantity,
-                    selectedAddOns = selectedAddOns,
-                    dateString = selectedDay.dateString,
-                    slotTime = selectedSlot.timeDisplay,
-                    address = selectedAddress,
-                    activeHub = activeHub,
-                    instructions = customerInstructions,
-                    paymentMethod = paymentMethod,
-                    onPaymentMethodChange = { paymentMethod = it },
-                    servicePrice = servicePrice,
-                    addOnsTotal = addOnsTotal,
-                    totalAmount = totalAmount
-                )
+                }
             }
-        }
 
-        // Bottom Action Bar
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Color.White,
-            shadowElevation = 8.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
+            // Step 1: Variant & Add-ons
+            if (currentStep == 1) {
+                item {
                     Text(
-                        text = "Total Payable",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = CleankrMuted
-                    )
-                    Text(
-                        text = "₹$totalAmount",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = CleankrNavyDark
+                        text = "1. Select Service Configuration",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
                     )
                 }
 
-                if (currentStep < 3) {
-                    CleankrButton(
-                        text = "Next Step",
-                        onClick = {
-                            if (currentStep == 1 && !selectedSlot.isAvailable) {
-                                errorMessage = "Please select an available time slot."
-                            } else if (currentStep == 2) {
-                                if (selectedAddress == null) {
-                                    errorMessage = "Please select or add a service address."
-                                } else if (!isHubServiceable || activeHub == null) {
-                                    errorMessage = "Cleankr service is currently unavailable in your area."
-                                } else {
-                                    errorMessage = null
-                                    currentStep += 1
-                                }
-                            } else {
-                                errorMessage = null
-                                currentStep += 1
-                            }
-                        },
-                        modifier = Modifier.width(180.dp),
-                        leadingIcon = Icons.AutoMirrored.Filled.ArrowForward
-                    )
-                } else {
-                    CleankrButton(
-                        text = if (paymentMethod == PaymentMethod.ONLINE) "Pay ₹$totalAmount" else "Confirm Booking",
-                        onClick = {
-                            if (selectedAddress == null) {
-                                errorMessage = "Please select a service address."
-                                return@CleankrButton
-                            }
-                            if (!isHubServiceable || activeHub == null) {
-                                errorMessage = "Cleankr service is currently unavailable in your area."
-                                return@CleankrButton
-                            }
-                            coroutineScope.launch {
-                                isCreatingBooking = true
-                                errorMessage = null
-                                delay(1200) // Simulate secure payment gateway & order booking handshake
-
-                                val result = bookingRepository.createBooking(
-                                    service = service,
-                                    variant = selectedVariant,
-                                    quantity = quantity,
-                                    selectedAddOnNames = selectedAddOns.map { it.name },
-                                    dateString = selectedDay.dateString,
-                                    slotTime = selectedSlot.timeDisplay,
-                                    address = selectedAddress!!,
-                                    instructions = customerInstructions,
-                                    paymentMethod = paymentMethod
-                                )
-
-                                isCreatingBooking = false
-                                result.fold(
-                                    onSuccess = { booking ->
-                                        onBookingCompleted(booking.id)
-                                    },
-                                    onFailure = { err ->
-                                        errorMessage = err.message ?: "Failed to book service. Please retry."
-                                    }
-                                )
-                            }
-                        },
-                        isLoading = isCreatingBooking,
-                        modifier = Modifier.width(200.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    // Add Address Dialog
-    if (showAddAddressDialog) {
-        AddAddressDialog(
-            onDismiss = { showAddAddressDialog = false },
-            onSave = { newAddr ->
-                coroutineScope.launch {
-                    val saved = addressRepository.addAddress(newAddr)
-                    selectedAddress = saved
-                    showAddAddressDialog = false
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun StepVariantAndAddons(
-    service: ServiceItem,
-    selectedVariant: ServiceVariant,
-    onVariantChange: (ServiceVariant) -> Unit,
-    selectedAddOns: List<AddOnItem>,
-    onToggleAddOn: (AddOnItem) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Select Service Package",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = CleankrNavyDark
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                service.variants.forEach { variant ->
-                    val isSelected = selectedVariant.id == variant.id
-                    Row(
+                items(service.variants) { variant ->
+                    val isSelected = variant.id == selectedVariant.id
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) CleankrTealContainer.copy(alpha = 0.4f) else Color.Transparent)
-                            .clickable { onVariantChange(variant) }
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { onVariantChange(variant) },
-                                colors = RadioButtonDefaults.colors(selectedColor = CleankrTeal)
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) CleankrTeal else CleankrBorder,
+                                shape = RoundedCornerShape(12.dp)
                             )
-                            Column {
-                                Text(
-                                    text = variant.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleankrNavyDark
-                                )
-                                Text(
-                                    text = "~${variant.durationText}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = CleankrMuted
-                                )
-                            }
-                        }
-                        Text(
-                            text = "₹${variant.price}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = CleankrNavyDark
-                        )
-                    }
-                }
-            }
-        }
-
-        if (service.addOns.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = "Add Specialized Enhancements",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    service.addOns.forEach { addon ->
-                        val isChecked = selectedAddOns.any { it.id == addon.id }
+                            .clickable { selectedVariant = variant }
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(
-                                checked = isChecked,
-                                onCheckedChange = { onToggleAddOn(addon) },
-                                colors = CheckboxDefaults.colors(checkedColor = CleankrOrange)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = addon.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = CleankrNavyDark
-                                )
-                                Text(
-                                    text = addon.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = CleankrMuted,
-                                    fontSize = 11.sp
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = isSelected, onClick = { selectedVariant = variant })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(variant.name, fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                    if (variant.description.isNotBlank()) {
+                                        Text(variant.description, style = MaterialTheme.typography.labelSmall, color = CleankrSlate)
+                                    }
+                                }
                             }
-                            Text(
-                                text = "+₹${addon.price}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = CleankrOrange
-                            )
+                            Text("₹${variant.price}", fontWeight = FontWeight.ExtraBold, color = CleankrTeal, fontSize = 16.sp)
                         }
                     }
                 }
-            }
-        }
-    }
-}
 
-@Composable
-fun StepDateAndTimeSlot(
-    upcomingDays: List<CalendarDay>,
-    selectedDay: CalendarDay,
-    onSelectDay: (CalendarDay) -> Unit,
-    timeSlots: List<TimeSlot>,
-    selectedSlot: TimeSlot,
-    onSelectSlot: (TimeSlot) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.CalendarMonth,
-                contentDescription = null,
-                tint = CleankrTeal,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Select Service Date",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Horizontal Calendar Picker
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(upcomingDays) { day ->
-                val isSelected = (day.dateString == selectedDay.dateString)
-                val isBooked = day.isFullyBooked
-
-                Card(
-                    modifier = Modifier
-                        .width(70.dp)
-                        .clickable(enabled = day.isAvailable) { onSelectDay(day) }
-                        .testTag("date_picker_${day.dateString}"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = when {
-                            isSelected -> CleankrTeal
-                            isBooked -> CleankrBorder.copy(alpha = 0.5f)
-                            else -> Color.White
-                        }
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
+                // Recommended Add-ons
+                if (service.addOns.isNotEmpty()) {
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = day.dayOfWeekText,
-                            fontSize = 11.sp,
+                            text = "Add-ons (Optional)",
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = when {
-                                isSelected -> Color.White
-                                isBooked -> CleankrMuted
-                                else -> CleankrSlate
-                            }
+                            color = CleankrNavy
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = day.dayOfMonthText,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = when {
-                                isSelected -> Color.White
-                                isBooked -> CleankrMuted
-                                else -> CleankrNavyDark
+                    }
+
+                    items(service.addOns) { addOn ->
+                        val isChecked = selectedAddOns.any { it.id == addOn.id }
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    width = if (isChecked) 1.5.dp else 1.dp,
+                                    color = if (isChecked) CleankrTeal else CleankrBorder,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    if (isChecked) selectedAddOns.removeAll { it.id == addOn.id }
+                                    else selectedAddOns.add(addOn)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = {
+                                            if (isChecked) selectedAddOns.removeAll { it.id == addOn.id }
+                                            else selectedAddOns.add(addOn)
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(addOn.name, fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                        Text(addOn.description, style = MaterialTheme.typography.labelSmall, color = CleankrSlate)
+                                    }
+                                }
+                                Text("+₹${addOn.price}", fontWeight = FontWeight.Bold, color = CleankrTeal)
                             }
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (isBooked) "Full" else day.monthText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = when {
-                                isSelected -> CleankrTealContainer
-                                isBooked -> CleankrRed
-                                else -> CleankrMuted
-                            }
-                        )
+                        }
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            // Step 2: Slot Selection
+            if (currentStep == 2) {
+                item {
+                    Text(
+                        text = "2. Select Date & Slot",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("Select Date", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Schedule,
-                contentDescription = null,
-                tint = CleankrOrange,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Select Time Slot",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Cleaners will arrive within the selected 2-hour window.",
-            style = MaterialTheme.typography.bodySmall,
-            color = CleankrMuted
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            timeSlots.forEach { slot ->
-                val isSelected = (slot.id == selectedSlot.id)
-                val isAvailable = slot.isAvailable
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = isAvailable) { onSelectSlot(slot) }
-                        .testTag("time_slot_${slot.id}"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = when {
-                            isSelected -> CleankrOrangeContainer
-                            !isAvailable -> CleankrBorder.copy(alpha = 0.3f)
-                            else -> Color.White
-                        }
-                    ),
-                    border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrOrange)) else null
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { if (isAvailable) onSelectSlot(slot) },
-                                enabled = isAvailable,
-                                colors = RadioButtonDefaults.colors(selectedColor = CleankrOrange)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
-                                Text(
-                                    text = slot.timeDisplay,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isAvailable) CleankrNavyDark else CleankrMuted
-                                )
-                                Text(
-                                    text = slot.period,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = CleankrMuted
-                                )
-                            }
-                        }
-
-                        if (!isAvailable) {
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(upcomingDates) { (label, value) ->
+                            val isSelected = selectedDate == value
                             Surface(
-                                color = CleankrRedLight,
-                                shape = RoundedCornerShape(6.dp)
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) CleankrTeal else CleankrCardSurface,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) CleankrTeal else CleankrBorder),
+                                modifier = Modifier.clickable { selectedDate = value }
                             ) {
                                 Text(
-                                    text = "Slot Passed / Unavailable",
-                                    fontSize = 10.sp,
-                                    color = CleankrRed,
+                                    text = label,
+                                    color = if (isSelected) Color.White else CleankrNavy,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                                 )
                             }
-                        } else if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = CleankrOrange,
-                                modifier = Modifier.size(20.dp)
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Select Time Slot", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                }
+
+                items(availableSlots) { slot ->
+                    val isSelected = selectedSlot == slot
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) CleankrTeal else CleankrBorder,
+                                shape = RoundedCornerShape(10.dp)
                             )
+                            .clickable { selectedSlot = slot }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = isSelected, onClick = { selectedSlot = slot })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(slot, fontWeight = FontWeight.Bold, color = CleankrNavy)
                         }
                     }
                 }
             }
-        }
-    }
-}
 
-@Composable
-fun StepAddressAndNotes(
-    addresses: List<Address>,
-    selectedAddress: Address?,
-    onSelectAddress: (Address) -> Unit,
-    instructions: String,
-    onInstructionsChange: (String) -> Unit,
-    onAddNewAddressClick: () -> Unit,
-    activeHub: CleankrHub?,
-    isCheckingHub: Boolean,
-    isHubServiceable: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Service Address",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-            TextButton(
-                onClick = onAddNewAddressClick,
-                modifier = Modifier.testTag("add_new_address_btn")
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(text = "Add New", fontWeight = FontWeight.Bold, color = CleankrTeal)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (addresses.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("No saved addresses yet.", color = CleankrMuted)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    CleankrButton(
-                        text = "Add Service Address",
-                        onClick = onAddNewAddressClick,
-                        modifier = Modifier.width(200.dp)
-                    )
-                }
-            }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                addresses.forEach { addr ->
-                    val isSelected = selectedAddress?.id == addr.id
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectAddress(addr) }
-                            .testTag("address_item_${addr.id}"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrTeal)) else null
+            // Step 3: Address & Hub Serviceability Check
+            if (currentStep == 3) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.Top
+                        Text(
+                            text = "3. Service Address",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = CleankrNavy
+                        )
+                        TextButton(onClick = onAddNewAddressClick) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = CleankrTeal)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Add Address", color = CleankrTeal, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                if (savedAddresses.isEmpty()) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { onSelectAddress(addr) },
-                                colors = RadioButtonDefaults.colors(selectedColor = CleankrTeal)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        color = CleankrTealContainer,
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text(
-                                            text = addr.label.uppercase(),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = CleankrTealDark,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    if (addr.isDefault) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(imageVector = Icons.Default.HomeWork, contentDescription = null, tint = CleankrSlate, modifier = Modifier.size(48.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text("No saved addresses found", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                Text("Add your address with pincode to check hub serviceability", style = MaterialTheme.typography.bodyMedium, color = CleankrSlate)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = onAddNewAddressClick,
+                                    colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal)
+                                ) {
+                                    Text("Add New Address")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(savedAddresses) { addr ->
+                        val isSelected = selectedAddress?.id == addr.id
+                        val hubForAddr = firebaseBackend.findActiveHubForAddress(addr)
+                        val isCovered = hubForAddr != null
+
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) CleankrTeal else CleankrBorder,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { selectedAddress = addr }
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        RadioButton(selected = isSelected, onClick = { selectedAddress = addr })
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Default",
-                                            fontSize = 10.sp,
-                                            color = CleankrMuted
-                                        )
+                                        Text(addr.label, fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                    }
+                                    if (isCovered) {
+                                        Surface(
+                                            color = CleankrTealLight,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Covered: ${hubForAddr?.hubName}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CleankrTeal,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Surface(
+                                            color = Color(0xFFFEE2E2),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Unavailable Area (${addr.pincode})",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CleankrError,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = addr.flatNo,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleankrNavyDark
+                                    text = "${addr.flatNo}, ${addr.street}, ${addr.city} - ${addr.pincode}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = CleankrSlate
                                 )
                                 Text(
-                                    text = "${addr.street}, ${addr.landmark}, ${addr.city} - ${addr.pincode}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = CleankrMuted
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Hub Coverage & Serviceability Card (Automated detection based on customer's address/pincode)
-            if (selectedAddress != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                if (isCheckingHub) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = CleankrTeal, strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Identifying Cleankr Hub for pincode ${selectedAddress.pincode}...", fontSize = 12.sp, color = CleankrSlate)
-                    }
-                } else if (!isHubServiceable || activeHub == null) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().testTag("hub_unavailable_card"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = CleankrRedLight),
-                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrRed))
-                    ) {
-                        Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = CleankrRed, modifier = Modifier.size(24.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Cleankr service is currently unavailable in your area.",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleankrRed
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Pincode ${selectedAddress.pincode} has no active Hub. Please select or add an address in a covered area to continue.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = CleankrNavyDark
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().testTag("hub_available_card"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = CleankrTealContainer.copy(alpha = 0.5f)),
-                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrTeal))
-                    ) {
-                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(22.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Active Hub: ${activeHub.name}",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleankrTealDark
-                                )
-                                Text(
-                                    text = "Auto-assigned for pincode ${selectedAddress.pincode} • Partner routing ready",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "Phone: ${addr.contactPhone}",
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = CleankrSlate
                                 )
                             }
                         }
                     }
                 }
-            }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "Special Instructions for Partner",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = CleankrNavyDark
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "e.g., 'Pet in the house', 'Call on reaching the gate', 'Key with neighbor'",
-            style = MaterialTheme.typography.bodySmall,
-            color = CleankrMuted
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedTextField(
-            value = instructions,
-            onValueChange = onInstructionsChange,
-            placeholder = { Text("Add instructions here (optional)...") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(100.dp)
-                .testTag("booking_instructions_input"),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color.White,
-                focusedBorderColor = CleankrTeal,
-                unfocusedBorderColor = CleankrBorder
-            )
-        )
-    }
-}
-
-@Composable
-fun StepReviewAndPayment(
-    service: ServiceItem,
-    selectedVariant: ServiceVariant,
-    quantity: Int,
-    selectedAddOns: List<AddOnItem>,
-    dateString: String,
-    slotTime: String,
-    address: Address?,
-    activeHub: CleankrHub?,
-    instructions: String,
-    paymentMethod: PaymentMethod,
-    onPaymentMethodChange: (PaymentMethod) -> Unit,
-    servicePrice: Int,
-    addOnsTotal: Int,
-    totalAmount: Int
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        // Summary Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Booking Overview",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrNavyDark
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = service.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrTealDark
-                )
-                Text(
-                    text = "Package: ${selectedVariant.name} (Qty: $quantity)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CleankrSlate
-                )
-
-                if (selectedAddOns.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Add-ons: " + selectedAddOns.joinToString(", ") { it.name },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CleankrOrange
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = CleankrBorder)
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Date: $dateString", style = MaterialTheme.typography.bodySmall, color = CleankrNavyDark, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Schedule, contentDescription = null, tint = CleankrOrange, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Slot: $slotTime", style = MaterialTheme.typography.bodySmall, color = CleankrNavyDark, fontWeight = FontWeight.SemiBold)
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(imageVector = Icons.Default.LocationOn, contentDescription = null, tint = CleankrGreen, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = address?.fullAddressText ?: "No address selected",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CleankrSlate
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = CleankrTealDark, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Assigned Hub: ${activeHub?.name ?: "Cleankr Active Hub"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = CleankrTealDark
-                    )
-                }
-
-                if (instructions.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Instructions: \"$instructions\"",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = CleankrMuted
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Price Breakdown Card (Complete Service Pricing Display)
-        Card(
-            modifier = Modifier.fillMaxWidth().testTag("price_breakdown_card"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Price Display (Admin Catalogue Validated)",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrNavyDark
-                )
-                Text(
-                    text = "Prices are centrally managed and non-editable",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CleankrMuted
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 1. Service Name
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Service Name", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    Text(text = service.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // 2. Variant / Size
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Variant / Size", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    Text(text = selectedVariant.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // 3. Base Price
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Base Price", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    Text(text = "₹${selectedVariant.price}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // 4. Selected Quantity
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Selected Quantity", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    Text(text = "$quantity (${selectedVariant.name} x $quantity = ₹$servicePrice)", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = CleankrNavyDark)
-                }
-
-                // 5. Add-on Prices
-                if (selectedAddOns.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    selectedAddOns.forEach { addon ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = "+ ${addon.name}", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                            Text(text = "₹${addon.price}", style = MaterialTheme.typography.bodySmall, color = CleankrOrange, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
+                item {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = instructions,
+                        onValueChange = { instructions = it },
+                        placeholder = { Text("Special cleaning instructions (e.g. Ring doorbell, hard stains in master bathroom)...") },
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = "Add-on Price Total", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                        Text(text = "+₹$addOnsTotal", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = CleankrOrange)
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = "Add-on Price", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                        Text(text = "₹0", style = MaterialTheme.typography.bodySmall, color = CleankrSlate)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "Safety & Equipment Kit", style = MaterialTheme.typography.bodySmall, color = CleankrGreen)
-                    Text(text = "FREE", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = CleankrGreen)
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleankrBorder)
-
-                // 6. Final Total
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "Final Total", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                    Text(text = "₹$totalAmount", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = CleankrOrange)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Payment Method Selection
-        Text(
-            text = "Select Payment Mode",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = CleankrNavyDark
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Online Payment
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onPaymentMethodChange(PaymentMethod.ONLINE) }
-                    .testTag("payment_method_online"),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = if (paymentMethod == PaymentMethod.ONLINE) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrTeal)) else null
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = paymentMethod == PaymentMethod.ONLINE,
-                        onClick = { onPaymentMethodChange(PaymentMethod.ONLINE) },
-                        colors = RadioButtonDefaults.colors(selectedColor = CleankrTeal)
+                        shape = RoundedCornerShape(12.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(imageVector = Icons.Default.CreditCard, contentDescription = null, tint = CleankrTeal)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(text = "Online Payment (UPI, Cards, NetBanking)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Text(text = "Instant refund eligible on cancellation", style = MaterialTheme.typography.labelSmall, color = CleankrGreen)
-                    }
                 }
             }
 
-            // Cash on Service
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onPaymentMethodChange(PaymentMethod.CASH) }
-                    .testTag("payment_method_cash"),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = if (paymentMethod == PaymentMethod.CASH) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CleankrTeal)) else null
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = paymentMethod == PaymentMethod.CASH,
-                        onClick = { onPaymentMethodChange(PaymentMethod.CASH) },
-                        colors = RadioButtonDefaults.colors(selectedColor = CleankrTeal)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(imageVector = Icons.Default.Money, contentDescription = null, tint = CleankrOrange)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(text = "Cash on Service", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = CleankrNavyDark)
-                        Text(text = "Pay directly to partner after service completion", style = MaterialTheme.typography.labelSmall, color = CleankrMuted)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AddAddressDialog(
-    onDismiss: () -> Unit,
-    onSave: (Address) -> Unit
-) {
-    var label by remember { mutableStateOf("Home") }
-    var flatNo by remember { mutableStateOf("") }
-    var street by remember { mutableStateOf("") }
-    var landmark by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("Bengaluru") }
-    var pincode by remember { mutableStateOf("") }
-    var isDefault by remember { mutableStateOf(false) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
-            .clickable(onClick = onDismiss),
-        color = Color.Transparent
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .clickable(enabled = false) {}
-                    .padding(vertical = 24.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(20.dp)
-                ) {
+            // Step 4: Review & Payment
+            if (currentStep == 4) {
+                item {
                     Text(
-                        text = "Add New Service Address",
+                        text = "4. Review & Doorstep Verification",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = CleankrNavyDark
+                        color = CleankrNavy
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
+                }
 
-                    // Address Type Pill
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Home", "Work", "Other").forEach { type ->
-                            Surface(
-                                color = if (label == type) CleankrTealContainer else CleankrBackground,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .clickable { label = type }
-                                    .border(1.dp, if (label == type) CleankrTeal else CleankrBorder, RoundedCornerShape(8.dp))
-                            ) {
-                                Text(
-                                    text = type,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (label == type) CleankrTealDark else CleankrSlate,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                )
+                // Booking Overview Card
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(service.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CleankrNavy)
+                            Text("Variant: ${selectedVariant.name}", style = MaterialTheme.typography.bodyMedium, color = CleankrSlate)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("$selectedDate • $selectedSlot", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.LocationOn, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("${selectedAddress?.flatNo}, ${selectedAddress?.street} (${activeHub?.hubName})", color = CleankrSlate, fontSize = 13.sp)
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedTextField(
-                        value = flatNo,
-                        onValueChange = { flatNo = it },
-                        label = { Text("Flat / House / Building No.") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_address_flat"),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = street,
-                        onValueChange = { street = it },
-                        label = { Text("Street / Society / Area") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("input_address_street"),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = landmark,
-                        onValueChange = { landmark = it },
-                        label = { Text("Landmark (e.g. Near Metro Station)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = city,
-                            onValueChange = { city = it },
-                            label = { Text("City") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        OutlinedTextField(
-                            value = pincode,
-                            onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pincode = it },
-                            label = { Text("Pincode") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = isDefault,
-                            onCheckedChange = { isDefault = it },
-                            colors = CheckboxDefaults.colors(checkedColor = CleankrTeal)
-                        )
-                        Text(
-                            text = "Set as default service address",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = CleankrSlate
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                // Price Breakdown Card
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        TextButton(onClick = onDismiss) {
-                            Text("Cancel", color = CleankrMuted)
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Price Breakdown", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Base Price (${selectedVariant.name})", color = CleankrSlate)
+                                Text("₹$basePriceTotal", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                            }
+                            if (selectedAddOns.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                selectedAddOns.forEach { addOn ->
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("+ ${addOn.name}", color = CleankrSlate, fontSize = 13.sp)
+                                        Text("₹${addOn.price}", color = CleankrNavy, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Taxes & Service Fees", color = CleankrSlate, fontSize = 13.sp)
+                                Text("₹0 (Zero Tax)", fontWeight = FontWeight.Bold, color = Color(0xFF16A34A), fontSize = 13.sp)
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = CleankrBorder)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Total Amount Payable", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                Text("₹$grandTotal", fontWeight = FontWeight.ExtraBold, color = CleankrTeal, fontSize = 18.sp)
+                            }
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        CleankrButton(
-                            text = "Save Address",
-                            onClick = {
-                                if (flatNo.isNotBlank() && street.isNotBlank() && pincode.length == 6) {
-                                    onSave(
-                                        Address(
-                                            id = "",
-                                            label = label,
-                                            flatNo = flatNo,
-                                            street = street,
-                                            landmark = landmark,
-                                            city = city,
-                                            pincode = pincode,
-                                            isDefault = isDefault
-                                        )
+                    }
+                }
+
+                // Payment Options
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Payment Mode", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { paymentMethod = "COD" }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = (paymentMethod == "COD"), onClick = { paymentMethod = "COD" })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Pay After Service (Cash / UPI at Doorstep)", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                    Text("Inspect service first, pay after satisfaction", style = MaterialTheme.typography.labelSmall, color = CleankrSlate)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { paymentMethod = "ONLINE" }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = (paymentMethod == "ONLINE"), onClick = { paymentMethod = "ONLINE" })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("Pay Online (UPI / Credit & Debit Card)", fontWeight = FontWeight.Bold, color = CleankrNavy)
+                                    Text("Instant contactless confirmation", style = MaterialTheme.typography.labelSmall, color = CleankrSlate)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Step 4 Mandatory Terms & Privacy Policy Verification
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isTermsAccepted) CleankrCardSurface else Color(0xFFF0FDF4)
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isTermsAccepted) CleankrTeal.copy(alpha = 0.5f) else Color(0xFF16A34A).copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("booking_terms_verification_card")
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.VerifiedUser,
+                                        contentDescription = null,
+                                        tint = if (isTermsAccepted) Color(0xFF16A34A) else CleankrTeal,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Terms & Privacy Policy Verification",
+                                        fontWeight = FontWeight.Bold,
+                                        color = CleankrNavy,
+                                        fontSize = 14.sp
                                     )
                                 }
-                            },
-                            enabled = flatNo.isNotBlank() && street.isNotBlank() && pincode.length == 6,
-                            modifier = Modifier.width(150.dp)
-                        )
+                                Surface(
+                                    color = if (isTermsAccepted) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (isTermsAccepted) "VERIFIED ✓" else "REQUIRED",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        color = if (isTermsAccepted) Color(0xFF16A34A) else Color(0xFFD97706),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Cleankr operates with 0% extra tax, verified Pune cleaning partners, and 4-digit doorstep safety PIN. Customers must verify and accept the policies before placing a booking.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrSlate,
+                                fontSize = 12.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Interactive Checkbox Box
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { isTermsAccepted = !isTermsAccepted }
+                                    .background(if (isTermsAccepted) CleankrTealLight.copy(alpha = 0.4f) else Color.White)
+                                    .border(
+                                        1.dp,
+                                        if (isTermsAccepted) CleankrTeal else CleankrBorder,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isTermsAccepted,
+                                    onCheckedChange = { isTermsAccepted = it },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = CleankrTeal,
+                                        checkmarkColor = Color.White
+                                    ),
+                                    modifier = Modifier.testTag("terms_acceptance_checkbox")
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "I have read, verified, and agree to Cleankr's Terms & Conditions and Privacy Policy.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isTermsAccepted) FontWeight.Bold else FontWeight.Normal,
+                                    color = CleankrNavy,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Links to read full policies
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        activeLegalDialog = Pair("Terms & Conditions", CleankrLegalConfig.TERMS_OF_SERVICE)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("button_read_terms")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = CleankrTeal,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Terms & Conditions", fontSize = 11.sp, maxLines = 1)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        activeLegalDialog = Pair("Privacy Policy", CleankrLegalConfig.PRIVACY_POLICY)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("button_read_privacy")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PrivacyTip,
+                                        contentDescription = null,
+                                        tint = CleankrTeal,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Privacy Policy", fontSize = 11.sp, maxLines = 1)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    activeLegalDialog = Pair("Cancellation & Refund Policy", CleankrLegalConfig.CANCELLATION_POLICY)
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("button_read_cancellation")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Policy,
+                                    contentDescription = null,
+                                    tint = CleankrTeal,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cancellation Policy (Free up to 2 hrs)", fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // Modal AlertDialog for viewing and accepting policies directly
+    activeLegalDialog?.let { (title, content) ->
+        AlertDialog(
+            onDismissRequest = { activeLegalDialog = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (title.contains("Privacy")) Icons.Default.PrivacyTip else Icons.Default.Description,
+                        contentDescription = null,
+                        tint = CleankrTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = title, fontWeight = FontWeight.Bold, color = CleankrNavy, fontSize = 18.sp)
+                }
+            },
+            text = {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                ) {
+                    item {
+                        Text(
+                            text = content.trimIndent(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = CleankrNavy,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        isTermsAccepted = true
+                        activeLegalDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.testTag("dialog_accept_policy_button")
+                ) {
+                    Text("I Understand & Accept", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { activeLegalDialog = null }) {
+                    Text("Close", color = CleankrSlate)
+                }
+            }
+        )
     }
 }

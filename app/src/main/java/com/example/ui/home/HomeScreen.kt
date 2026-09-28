@@ -2,847 +2,455 @@ package com.example.ui.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Apartment
-import androidx.compose.material.icons.filled.Bathtub
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Deck
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Kitchen
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
-import com.example.core.model.Address
+import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.model.Booking
-import com.example.core.model.CustomerUser
 import com.example.core.model.ServiceCategory
 import com.example.core.model.ServiceItem
-import com.example.core.repository.AddressRepository
-import com.example.core.repository.BookingRepository
-import com.example.core.repository.NotificationRepository
-import com.example.core.repository.ServiceRepository
-import com.example.ui.components.CleankrTopBar
-import com.example.ui.components.StatusBadge
-import com.example.ui.theme.CleankrBackground
-import com.example.ui.theme.CleankrBorder
-import com.example.ui.theme.CleankrGreen
-import com.example.ui.theme.CleankrGreenLight
-import com.example.ui.theme.CleankrMuted
-import com.example.ui.theme.CleankrNavyDark
-import com.example.ui.theme.CleankrOrange
-import com.example.ui.theme.CleankrOrangeContainer
-import com.example.ui.theme.CleankrSlate
-import com.example.ui.theme.CleankrTeal
-import com.example.ui.theme.CleankrTealLight
-import com.example.ui.theme.CleankrTealContainer
-import com.example.ui.theme.CleankrTealDark
+import com.example.core.model.UserProfile
+import com.example.ui.components.CleankrStrings
+import com.example.ui.components.DoorstepPinCard
+import com.example.ui.components.InvoiceShareHelper
+import com.example.ui.components.ReferAndEarnCard
+import com.example.ui.theme.*
 
 @Composable
 fun HomeScreen(
-    currentUser: CustomerUser?,
-    serviceRepository: ServiceRepository,
-    bookingRepository: BookingRepository,
-    addressRepository: AddressRepository,
-    notificationRepository: NotificationRepository,
-    onCategoryClick: (ServiceCategory) -> Unit,
+    userProfile: UserProfile,
+    categories: List<ServiceCategory>,
+    services: List<ServiceItem>,
+    activeBookings: List<Booking>,
+    backendService: FirebaseBackendService,
+    onCategoryClick: (String) -> Unit,
     onServiceClick: (String) -> Unit,
     onBookingClick: (String) -> Unit,
-    onAddressClick: () -> Unit,
-    onNotificationsClick: () -> Unit,
-    onProfileClick: () -> Unit,
-    onSupportClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onViewAllServices: () -> Unit,
+    onNavigateToAdminHub: () -> Unit = {},
+    unresolvedAlertsCount: Int = 0
 ) {
-    val services by serviceRepository.services.collectAsState(initial = emptyList())
-    val activeBookings by bookingRepository.activeBookings.collectAsState(initial = emptyList())
-    val allBookings by bookingRepository.allBookings.collectAsState(initial = emptyList())
-    val defaultAddress by addressRepository.defaultAddress.collectAsState(initial = null)
-    val notifications by notificationRepository.notifications.collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val lang = userProfile.language
 
-    val unreadNotifsCount = notifications.count { !it.isRead }
-    var searchQuery by remember { mutableStateOf("") }
-
-    val filteredServices = remember(searchQuery, services) {
-        if (searchQuery.isBlank()) services else serviceRepository.searchServices(searchQuery)
-    }
-
-    val upcomingBooking = activeBookings.firstOrNull()
-
-    Column(
-        modifier = modifier
+    LazyColumn(
+        modifier = Modifier
             .fillMaxSize()
-            .background(CleankrBackground)
+            .background(CleankrBackground),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        // Sticky Header
-        CleankrTopBar(
-            customerName = currentUser?.name?.split(" ")?.firstOrNull() ?: "Rajesh",
-            currentAddressText = defaultAddress?.let { "${it.label} • ${it.flatNo}" } ?: "Prestige Acropolis, Koramangala",
-            unreadNotificationsCount = unreadNotifsCount,
-            onAddressClick = onAddressClick,
-            onNotificationsClick = onNotificationsClick,
-            onProfileClick = onProfileClick
-        )
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            // Search Bar
-            item {
-                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search 'Bathroom clean', 'Kitchen degrease'...") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = CleankrTeal
-                            )
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                Text(
-                                    text = "Clear",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = CleankrOrange,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .clickable { searchQuery = "" }
-                                        .padding(8.dp)
-                                )
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("home_search_input"),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedBorderColor = CleankrTeal,
-                            unfocusedBorderColor = CleankrBorder
-                        )
-                    )
-                }
-            }
-
-            // If Search query active, show search results directly
-            if (searchQuery.isNotBlank()) {
-                item {
-                    Text(
-                        text = "Search Results (${filteredServices.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = CleankrNavyDark,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-                items(filteredServices) { service ->
-                    ServiceSearchCard(
-                        service = service,
-                        onClick = { onServiceClick(service.id) }
-                    )
-                }
-            } else {
-                // Hero Banner
-                item {
-                    HeroBanner(onBookNow = { onCategoryClick(ServiceCategory.BATHROOM) })
-                }
-
-                // Upcoming Booking Card (if exists)
-                if (upcomingBooking != null) {
-                    item {
-                        UpcomingBookingCard(
-                            booking = upcomingBooking,
-                            onClick = { onBookingClick(upcomingBooking.id) }
-                        )
-                    }
-                }
-
-                // 5 Main Service Categories
-                item {
-                    Column(modifier = Modifier.padding(top = 16.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Service Categories",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = CleankrNavyDark
-                            )
-                            Text(
-                                text = "5 Specialized",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = CleankrMuted
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Category Grid/Row
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CategoryCircleItem(
-                                category = ServiceCategory.BATHROOM,
-                                icon = Icons.Default.Bathtub,
-                                color = CleankrTeal,
-                                onClick = { onCategoryClick(ServiceCategory.BATHROOM) }
-                            )
-                            CategoryCircleItem(
-                                category = ServiceCategory.KITCHEN,
-                                icon = Icons.Default.Kitchen,
-                                color = CleankrOrange,
-                                onClick = { onCategoryClick(ServiceCategory.KITCHEN) }
-                            )
-                            CategoryCircleItem(
-                                category = ServiceCategory.FLAT,
-                                icon = Icons.Default.Apartment,
-                                color = CleankrTealDark,
-                                onClick = { onCategoryClick(ServiceCategory.FLAT) }
-                            )
-                            CategoryCircleItem(
-                                category = ServiceCategory.BALCONY,
-                                icon = Icons.Default.Deck,
-                                color = CleankrGreen,
-                                onClick = { onCategoryClick(ServiceCategory.BALCONY) }
-                            )
-                            CategoryCircleItem(
-                                category = ServiceCategory.OTHER,
-                                icon = Icons.Default.MoreHoriz,
-                                color = CleankrSlate,
-                                onClick = { onCategoryClick(ServiceCategory.OTHER) }
-                            )
-                        }
-                    }
-                }
-
-                // Popular Services
-                item {
-                    Spacer(modifier = Modifier.height(24.dp))
+        // Hero Header Card
+        item {
+            Card(
+                shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
+                colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Popular Services",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = CleankrNavyDark
-                        )
-                        Text(
-                            text = "Fixed Company Pricing",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = CleankrTeal,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Location",
+                                    tint = CleankrTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Pune Hubs Active (5 Divisions)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrNavy
+                                )
+                            }
+                            Text(
+                                text = "Kothrud, Viman Nagar, Hinjawadi, Hadapsar, Swargate",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = CleankrSlate
+                            )
+                        }
 
-                item {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        // Quick Admin Panel Button
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (unresolvedAlertsCount > 0) Color(0xFFFEF2F2) else CleankrTealLight,
+                            modifier = Modifier
+                                .clickable { onNavigateToAdminHub() }
+                                .testTag("home_admin_panel_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AdminPanelSettings,
+                                    contentDescription = "Admin Panel",
+                                    tint = if (unresolvedAlertsCount > 0) CleankrError else CleankrTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (unresolvedAlertsCount > 0) "$unresolvedAlertsCount 🚨" else "Admin",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (unresolvedAlertsCount > 0) CleankrError else CleankrTeal
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Hero Banner Image
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(16.dp))
                     ) {
-                        items(services.take(4)) { service ->
-                            PopularServiceCard(
-                                service = service,
-                                onClick = { onServiceClick(service.id) }
+                        Image(
+                            painter = painterResource(id = R.drawable.home_cleaning_banner),
+                            contentDescription = "Deep Cleaning Offer",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
+                                    )
+                                )
+                        )
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(16.dp)
+                        ) {
+                            Surface(
+                                color = CleankrAccent,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "ADMIN VERIFIED PRICES",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = CleankrNavy,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Professional Home\n& Deep Cleaning",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Starts at ₹450 • 100% Background Verified",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.9f)
                             )
                         }
                     }
                 }
+            }
+        }
 
-                // Help & Support Shortcut Card
-                item {
-                    Spacer(modifier = Modifier.height(20.dp))
+        // Active Booking Highlight (Doorstep Safety PIN)
+        if (activeBookings.isNotEmpty()) {
+            val active = activeBookings.first()
+            item {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Active Booking In Progress",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .clickable(onClick = onSupportClick)
-                            .testTag("home_support_card"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = CleankrNavyDark
-                        )
+                            .clickable { onBookingClick(active.id) }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(CleankrTeal.copy(alpha = 0.2f)),
-                                    contentAlignment = Alignment.Center
+                                Text(
+                                    text = active.serviceTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrNavy
+                                )
+                                Surface(
+                                    color = CleankrTealLight,
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Headphones,
-                                        contentDescription = "Support",
-                                        tint = CleankrTealLight,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
                                     Text(
-                                        text = "Cleankr Customer Support",
-                                        style = MaterialTheme.typography.titleSmall,
+                                        text = active.status,
+                                        style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Text(
-                                        text = "Instant answers, booking help & refunds",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = CleankrBorder
+                                        color = CleankrTeal,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
                             }
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Go",
-                                tint = CleankrOrange
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${active.bookingDate} • ${active.slotTime}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = CleankrSlate
                             )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Doorstep Safety PIN Display
+                            DoorstepPinCard(startPin = active.startPin, lang = lang)
                         }
                     }
                 }
+            }
+        }
 
-                // Recent Bookings (if any completed)
-                val completedBookings = allBookings.filter { it.status.isTerminal }
-                if (completedBookings.isNotEmpty()) {
-                    item {
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(
-                            text = "Past Bookings",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = CleankrNavyDark,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
+        // Refer & Earn Banner (Feature 7)
+        item {
+            Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                ReferAndEarnCard(
+                    referralCode = userProfile.referralCode,
+                    lang = lang,
+                    onShare = {
+                        InvoiceShareHelper.shareReferral(context, userProfile.referralCode)
                     }
+                )
+            }
+        }
 
-                    items(completedBookings.take(2)) { b ->
-                        RecentBookingCard(
-                            booking = b,
-                            onClick = { onBookingClick(b.id) }
+        // Categories Grid / List
+        item {
+            Column(modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = CleankrStrings.get("services", lang),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
+                    )
+                    TextButton(onClick = onViewAllServices) {
+                        Text(
+                            text = "View All",
+                            color = CleankrTeal,
+                            fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(categories) { category ->
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier
+                                .width(120.dp)
+                                .clickable { onCategoryClick(category.id) }
+                                .testTag("category_card_${category.id}")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(CleankrTealLight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = when (category.id) {
+                                            "cat_bathroom" -> Icons.Default.Bathtub
+                                            "cat_kitchen" -> Icons.Default.Kitchen
+                                            "cat_fullhome" -> Icons.Default.Home
+                                            "cat_sofa" -> Icons.Default.Chair
+                                            else -> Icons.Default.CleaningServices
+                                        },
+                                        contentDescription = category.name,
+                                        tint = CleankrTeal
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrNavy,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-}
 
-@Composable
-fun HeroBanner(onBookNow: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = CleankrNavyDark),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Image(
-                painter = painterResource(id = R.drawable.home_cleaning_banner),
-                contentDescription = "Cleankr Banner",
-                contentScale = ContentScale.Crop,
+        // Popular Services
+        item {
+            Column(modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)) {
+                Text(
+                    text = "Popular Deep Cleaning Services",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = CleankrNavy
+                )
+                Text(
+                    text = "Direct booking with guaranteed pricing",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CleankrSlate
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+
+        items(services) { service ->
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(170.dp)
-            )
-            // Gradient Overlay
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                CleankrNavyDark.copy(alpha = 0.92f),
-                                CleankrNavyDark.copy(alpha = 0.65f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-
-            Column(
-                modifier = Modifier
-                    .padding(18.dp)
-                    .align(Alignment.CenterStart)
-                    .fillMaxWidth(0.72f)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clickable { onServiceClick(service.id) }
+                    .testTag("service_item_${service.id}")
             ) {
-                Surface(
-                    color = CleankrOrange,
-                    shape = RoundedCornerShape(6.dp)
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "CLEANKR PRO HYGIENE",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Spotless Clean.\nGuaranteed Hygiene.",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    lineHeight = 22.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Bathroom intense clean starting from ₹450 with German descaling.",
-                    fontSize = 12.sp,
-                    color = CleankrBorder,
-                    maxLines = 2
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = CleankrOrange,
-                    modifier = Modifier.clickable(onClick = onBookNow)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Book Bathroom Clean",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CategoryCircleItem(
-    category: ServiceCategory,
-    icon: ImageVector,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .testTag("category_${category.name.lowercase()}")
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.12f))
-                .border(1.dp, color.copy(alpha = 0.3f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = category.displayName,
-                tint = color,
-                modifier = Modifier.size(28.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = category.displayName,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = CleankrNavyDark
-        )
-    }
-}
-
-@Composable
-fun PopularServiceCard(
-    service: ServiceItem,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .width(220.dp)
-            .clickable(onClick = onClick)
-            .testTag("popular_service_${service.id}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = CleankrTealContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = service.category.displayName,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CleankrTealDark,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = "Rating",
-                        tint = CleankrOrange,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = service.rating.toString(),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CleankrNavyDark
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = service.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = service.shortDesc,
-                style = MaterialTheme.typography.bodySmall,
-                color = CleankrMuted,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Starts at",
-                        fontSize = 9.sp,
-                        color = CleankrMuted
-                    )
-                    Text(
-                        text = "₹${service.basePrice}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = CleankrNavyDark
-                    )
-                }
-
-                Surface(
-                    color = CleankrOrange,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = "Book",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun UpcomingBookingCard(
-    booking: Booking,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable(onClick = onClick)
-            .testTag("upcoming_booking_card"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CleankrTealContainer.copy(alpha = 0.6f)),
-        border = CardDefaults.outlinedCardBorder().copy(brush = Brush.horizontalGradient(listOf(CleankrTeal, CleankrTealDark)))
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(CleankrOrange)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "UPCOMING SERVICE",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = CleankrTealDark,
-                        letterSpacing = 0.5.sp
-                    )
+                            .size(60.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CleankrTealLight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when (service.categoryId) {
+                                "cat_bathroom" -> Icons.Default.Bathtub
+                                "cat_kitchen" -> Icons.Default.Kitchen
+                                "cat_fullhome" -> Icons.Default.Home
+                                else -> Icons.Default.CleaningServices
+                            },
+                            contentDescription = service.title,
+                            tint = CleankrTeal,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = service.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = CleankrNavy
+                            )
+                            if (service.isPopular) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Color(0xFFFEF3C7),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "HOT",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309),
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = service.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = CleankrSlate,
+                            maxLines = 2,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Starts at ₹${service.basePrice}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = CleankrTeal
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = "Rating",
+                                    tint = CleankrAccent,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "${service.rating} (${service.reviewCount})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = CleankrNavy
+                                )
+                            }
+                        }
+                    }
                 }
-
-                StatusBadge(status = booking.status)
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "${booking.serviceTitle} (${booking.variantName})",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "📅 ${booking.bookingDate} • ⏰ ${booking.slotTime}",
-                style = MaterialTheme.typography.bodySmall,
-                color = CleankrSlate,
-                fontWeight = FontWeight.Medium
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Booking ID: ${booking.id}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CleankrMuted
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(end = 4.dp)
-                ) {
-                    Text(
-                        text = "Live Track",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = CleankrOrange
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = CleankrOrange,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun RecentBookingCard(
-    booking: Booking,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = booking.serviceTitle,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrNavyDark
-                )
-                Text(
-                    text = "${booking.bookingDate} • ₹${booking.totalAmount}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CleankrMuted
-                )
-            }
-            StatusBadge(status = booking.status)
-        }
-    }
-}
-
-@Composable
-fun ServiceSearchCard(
-    service: ServiceItem,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Surface(
-                    color = CleankrTealContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = service.category.displayName,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CleankrTealDark,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = service.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrNavyDark
-                )
-                Text(
-                    text = service.shortDesc,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = CleankrMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "₹${service.basePrice}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CleankrOrange
-                )
-                Text(
-                    text = "View >",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CleankrTeal,
-                    fontWeight = FontWeight.Bold
-                )
             }
         }
     }

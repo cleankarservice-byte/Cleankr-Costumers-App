@@ -2,82 +2,80 @@ package com.example.ui.history
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Receipt
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.model.Booking
-import com.example.core.model.BookingStatus
 import com.example.core.repository.BookingRepository
-import com.example.ui.components.CleankrStandardTopBar
-import com.example.ui.components.EmptyStateView
-import com.example.ui.components.StatusBadge
-import com.example.ui.theme.CleankrBackground
-import com.example.ui.theme.CleankrBorder
-import com.example.ui.theme.CleankrMuted
-import com.example.ui.theme.CleankrNavyDark
-import com.example.ui.theme.CleankrOrange
-import com.example.ui.theme.CleankrSlate
-import com.example.ui.theme.CleankrTeal
-import com.example.ui.theme.CleankrTealContainer
+import com.example.ui.components.InvoiceShareHelper
+import com.example.ui.components.RatingReviewDialog
+import com.example.ui.components.RescheduleBookingDialog
+import com.example.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun BookingHistoryScreen(
+    bookings: List<Booking>,
     bookingRepository: BookingRepository,
-    onBookingClick: (String) -> Unit,
-    onExploreServices: () -> Unit
+    onBookingClick: (String) -> Unit
 ) {
-    val allBookings by bookingRepository.allBookings.collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var selectedTab by remember { mutableStateOf(0) } // 0: Upcoming, 1: History
 
-    val tabs = listOf("All", "Upcoming", "Completed", "Cancelled")
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedBookingForReschedule by remember { mutableStateOf<Booking?>(null) }
+    var selectedBookingForRating by remember { mutableStateOf<Booking?>(null) }
 
-    val filteredBookings = remember(selectedTabIndex, allBookings) {
-        when (selectedTabIndex) {
-            1 -> allBookings.filter { !it.status.isTerminal }
-            2 -> allBookings.filter { it.status == BookingStatus.COMPLETED }
-            3 -> allBookings.filter { it.status == BookingStatus.CANCELLED }
-            else -> allBookings
-        }
+    val activeBookings = remember(bookings) {
+        bookings.filter { it.status !in listOf("COMPLETED", "CANCELLED") }
+    }
+    val pastBookings = remember(bookings) {
+        bookings.filter { it.status in listOf("COMPLETED", "CANCELLED") }
+    }
+
+    if (selectedBookingForReschedule != null) {
+        val b = selectedBookingForReschedule!!
+        RescheduleBookingDialog(
+            currentDate = b.bookingDate,
+            currentSlot = b.slotTime,
+            onDismiss = { selectedBookingForReschedule = null },
+            onConfirm = { newDate, newSlot ->
+                coroutineScope.launch {
+                    bookingRepository.rescheduleBooking(b.id, newDate, newSlot)
+                    selectedBookingForReschedule = null
+                }
+            }
+        )
+    }
+
+    if (selectedBookingForRating != null) {
+        val b = selectedBookingForRating!!
+        RatingReviewDialog(
+            bookingTitle = b.serviceTitle,
+            onDismiss = { selectedBookingForRating = null },
+            onSubmit = { rating, review ->
+                coroutineScope.launch {
+                    bookingRepository.submitRating(b.id, rating, review)
+                    selectedBookingForRating = null
+                }
+            }
+        )
     }
 
     Column(
@@ -85,159 +83,197 @@ fun BookingHistoryScreen(
             .fillMaxSize()
             .background(CleankrBackground)
     ) {
-        CleankrStandardTopBar(title = "My Bookings")
-
-        ScrollableTabRow(
-            selectedTabIndex = selectedTabIndex,
-            containerColor = Color.White,
-            contentColor = CleankrOrange,
-            edgePadding = 16.dp,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                    color = CleankrOrange,
-                    height = 3.dp
-                )
-            }
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = CleankrCardSurface,
+            contentColor = CleankrTeal
         ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTabIndex == index,
-                    onClick = { selectedTabIndex = index },
-                    text = {
-                        Text(
-                            text = title,
-                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selectedTabIndex == index) CleankrOrange else CleankrSlate
-                        )
-                    }
-                )
-            }
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { Text("Upcoming (${activeBookings.size})", fontWeight = FontWeight.Bold) },
+                modifier = Modifier.testTag("tab_upcoming_bookings")
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = { Text("Past & Completed (${pastBookings.size})", fontWeight = FontWeight.Bold) },
+                modifier = Modifier.testTag("tab_past_bookings")
+            )
         }
 
-        if (filteredBookings.isEmpty()) {
-            EmptyStateView(
-                icon = Icons.Default.Assignment,
-                title = "No Bookings Found",
-                subtitle = "You don't have any ${tabs[selectedTabIndex].lowercase()} bookings.",
-                actionButtonText = "Explore Services",
-                onActionClick = onExploreServices
-            )
+        val displayList = if (selectedTab == 0) activeBookings else pastBookings
+
+        if (displayList.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.CleaningServices,
+                        contentDescription = null,
+                        tint = CleankrSlate,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (selectedTab == 0) "No upcoming bookings" else "No past bookings yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
+                    )
+                    Text(
+                        text = "Your hygiene and home cleaning appointments will appear here",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = CleankrSlate
+                    )
+                }
+            }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(filteredBookings) { booking ->
-                    BookingHistoryCard(
-                        booking = booking,
-                        onClick = { onBookingClick(booking.id) }
-                    )
+                items(displayList) { booking ->
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CleankrCardSurface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onBookingClick(booking.id) }
+                            .testTag("booking_card_${booking.id}")
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = booking.serviceTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrNavy
+                                )
+                                Surface(
+                                    color = when (booking.status) {
+                                        "COMPLETED" -> Color(0xFFDCFCE7)
+                                        "CANCELLED" -> Color(0xFFFEE2E2)
+                                        else -> CleankrTealLight
+                                    },
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = booking.status,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = when (booking.status) {
+                                            "COMPLETED" -> CleankrSuccess
+                                            "CANCELLED" -> CleankrError
+                                            else -> CleankrTeal
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Variant: ${booking.variantName} (Qty: ${booking.quantity})",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = CleankrSlate,
+                                fontSize = 13.sp
+                            )
+                            if (booking.hubName != null) {
+                                Text(
+                                    text = "Hub: ${booking.hubName}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = CleankrSlate
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = CleankrTeal, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${booking.bookingDate} • ${booking.slotTime}",
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleankrNavy,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = CleankrBorder)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Amount Paid", fontSize = 11.sp, color = CleankrSlate)
+                                    Text(
+                                        text = "₹${booking.totalAmount}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = CleankrTeal
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    // Share Bill / Invoice
+                                    IconButton(
+                                        onClick = { InvoiceShareHelper.shareInvoice(context, booking) },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Receipt, contentDescription = "Share Bill", tint = CleankrTeal)
+                                    }
+
+                                    // Reschedule button if upcoming
+                                    if (selectedTab == 0 && booking.status in listOf("CONFIRMED", "ASSIGNED")) {
+                                        OutlinedButton(
+                                            onClick = { selectedBookingForReschedule = booking },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("Reschedule", fontSize = 12.sp, color = CleankrTeal)
+                                        }
+                                    }
+
+                                    // Rating button if past
+                                    if (selectedTab == 1 && booking.status == "COMPLETED") {
+                                        Button(
+                                            onClick = { selectedBookingForRating = booking },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFEF3C7)),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(if (booking.userRating != null) "${booking.userRating}★" else "Rate", fontSize = 12.sp, color = Color(0xFF92400E))
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = { onBookingClick(booking.id) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("Track", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun BookingHistoryCard(
-    booking: Booking,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .testTag("history_card_${booking.id}"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "ID: ${booking.id}",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrTeal
-                )
-                StatusBadge(status = booking.status)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = booking.serviceTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = CleankrNavyDark
-            )
-
-            Text(
-                text = "${booking.variantName} (Qty: ${booking.quantity})",
-                style = MaterialTheme.typography.bodySmall,
-                color = CleankrSlate
-            )
-
-            if (!booking.hubName.isNullOrBlank()) {
-                Text(
-                    text = "Hub: ${booking.hubName}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = CleankrTeal,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = CleankrBorder)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = CleankrMuted, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${booking.bookingDate} • ${booking.slotTime}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = CleankrMuted
-                    )
-                }
-
-                Text(
-                    text = "₹${booking.totalAmount}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CleankrOrange
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "View Details & Live Tracking",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = CleankrTeal
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = CleankrTeal,
-                    modifier = Modifier.size(12.dp)
-                )
             }
         }
     }

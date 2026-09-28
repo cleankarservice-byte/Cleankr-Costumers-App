@@ -5,1179 +5,624 @@ import android.util.Log
 import com.example.core.model.AddOnItem
 import com.example.core.model.Address
 import com.example.core.model.Booking
-import com.example.core.model.BookingStatus
 import com.example.core.model.CleankrHub
-import com.example.core.model.CustomerUser
+import com.example.core.model.CrossHubAttempt
 import com.example.core.model.NotificationItem
-import com.example.core.model.PartnerInfo
-import com.example.core.model.PaymentMethod
-import com.example.core.model.PaymentStatus
-import com.example.core.model.ServiceCategory
 import com.example.core.model.ServiceItem
 import com.example.core.model.ServiceVariant
 import com.example.core.model.SupportTicket
-import com.example.core.repository.ServiceRepository
-import com.example.BuildConfig
-import com.google.firebase.FirebaseApp
-import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageMetadata
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-/**
- * State of backend ecosystem connection
- */
 enum class BackendConnectionState {
-    CONNECTED,
-    CONNECTING,
-    OFFLINE_CACHE,
-    NO_FIREBASE_CONFIG
+    CONNECTED, CONNECTING, DISCONNECTED, OFFLINE_FALLBACK
 }
 
-/**
- * Enterprise Firebase Integration Service for Cleankr Customer App.
- * Connects directly to the shared Cleankr Firebase Ecosystem (Customer, Partner, Admin).
- */
 class FirebaseBackendService(private val context: Context) {
 
-    private val tag = "CleankrBackend"
-
-    private val _connectionState = MutableStateFlow(
-        if (isFirebaseConfigured()) BackendConnectionState.CONNECTING else BackendConnectionState.NO_FIREBASE_CONFIG
-    )
-    val connectionState: StateFlow<BackendConnectionState> = _connectionState.asStateFlow()
-
-    fun isFirebaseConfigured(): Boolean {
-        return try {
-            FirebaseApp.getApps(context).isNotEmpty()
-        } catch (e: Exception) {
-            Log.w(tag, "FirebaseApp check error: ${e.message}")
-            false
-        }
-    }
-
-    init {
-        initializeAppCheck()
-    }
-
-    /**
-     * Initializes Firebase App Check with Play Integrity provider in production,
-     * and Debug provider during local testing/development.
-     */
-    fun initializeAppCheck() {
-        if (!isFirebaseConfigured()) return
-        try {
-            val firebaseAppCheck = FirebaseAppCheck.getInstance()
-            if (BuildConfig.DEBUG) {
-                firebaseAppCheck.installAppCheckProviderFactory(
-                    DebugAppCheckProviderFactory.getInstance()
-                )
-                Log.d(tag, "AppCheck: DebugAppCheckProviderFactory installed for development")
-            } else {
-                firebaseAppCheck.installAppCheckProviderFactory(
-                    PlayIntegrityAppCheckProviderFactory.getInstance()
-                )
-                Log.d(tag, "AppCheck: PlayIntegrityAppCheckProviderFactory installed for production")
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "AppCheck initialization note: ${e.message}")
-        }
-    }
-
-    private val auth: FirebaseAuth? by lazy {
-        if (isFirebaseConfigured()) {
-            try {
-                FirebaseAuth.getInstance()
-            } catch (e: Exception) {
-                Log.w(tag, "FirebaseAuth unavailable: ${e.message}")
-                null
-            }
-        } else null
-    }
-
     private val firestore: FirebaseFirestore? by lazy {
-        if (isFirebaseConfigured()) {
-            try {
-                FirebaseFirestore.getInstance()
-            } catch (e: Exception) {
-                Log.w(tag, "FirebaseFirestore unavailable: ${e.message}")
-                null
-            }
-        } else null
-    }
-
-    private val storage: FirebaseStorage? by lazy {
-        if (isFirebaseConfigured()) {
-            try {
-                FirebaseStorage.getInstance()
-            } catch (e: Exception) {
-                Log.w(tag, "FirebaseStorage unavailable: ${e.message}")
-                null
-            }
-        } else null
-    }
-
-    /**
-     * Target Firebase Project ID for the unified Cleankr Ecosystem.
-     */
-    fun getTargetProjectId(): String = FirebaseConstants.PROJECT_ID
-
-    /**
-     * Detects and returns the active Firebase project ID.
-     * Returns "cleankr-724ce" by default, or the project ID from FirebaseOptions if configured.
-     */
-    fun getConnectedProjectId(): String {
-        return try {
-            if (FirebaseApp.getApps(context).isNotEmpty()) {
-                val app = FirebaseApp.getInstance()
-                val detectedId = app.options.projectId
-                if (!detectedId.isNullOrBlank()) {
-                    if (detectedId != FirebaseConstants.PROJECT_ID) {
-                        Log.e(tag, "MISMATCH WARNING: Connected Firebase project is $detectedId but expected ${FirebaseConstants.PROJECT_ID}")
-                    }
-                    detectedId
-                } else {
-                    FirebaseConstants.PROJECT_ID
-                }
-            } else {
-                FirebaseConstants.PROJECT_ID
-            }
+        try {
+            FirebaseFirestore.getInstance()
         } catch (e: Exception) {
-            Log.w(tag, "Failed to read Firebase project ID: ${e.message}")
-            FirebaseConstants.PROJECT_ID
-        }
-    }
-
-    /**
-     * Verifies that the connected Firebase configuration points strictly to cleankr-724ce.
-     */
-    fun isTargetProjectVerified(): Boolean {
-        return getConnectedProjectId() == FirebaseConstants.PROJECT_ID
-    }
-
-    val currentFirebaseUser: FirebaseUser?
-        get() = auth?.currentUser
-
-    val currentCustomerId: String
-        get() = currentFirebaseUser?.uid ?: "cust_offline"
-
-    // -------------------------------------------------------------------------
-    // 1. Firebase Authentication & Customer Profile
-    // -------------------------------------------------------------------------
-
-    suspend fun syncCustomerProfile(
-        customerId: String,
-        name: String,
-        phone: String,
-        email: String
-    ): Result<Unit> {
-        val db = firestore ?: return Result.success(Unit) // Offline fallback
-        return try {
-            val userPayload = hashMapOf<String, Any>(
-                "uid" to customerId,
-                "displayName" to name,
-                "phone" to phone,
-                "email" to email,
-                FirebaseConstants.FIELD_ROLE to FirebaseConstants.ROLE_CUSTOMER, // Strictly customer role
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-            )
-
-            val customerPayload = hashMapOf<String, Any>(
-                FirebaseConstants.FIELD_CUSTOMER_ID to customerId,
-                "name" to name,
-                "phone" to phone,
-                "email" to email,
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-            )
-
-            // Write to 'users' and 'customers'
-            db.collection(FirebaseConstants.COLLECTION_USERS)
-                .document(customerId)
-                .set(userPayload, SetOptions.merge())
-                .await()
-
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-                .document(customerId)
-                .set(customerPayload, SetOptions.merge())
-                .await()
-
-            _connectionState.value = BackendConnectionState.CONNECTED
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(tag, "Error syncing customer profile: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun deleteCustomerAccountInBackend(customerId: String, reason: String): Result<Unit> {
-        val db = firestore ?: return Result.success(Unit)
-        return try {
-            val updatePayload = mapOf(
-                "status" to "DELETED",
-                "deletionReason" to reason,
-                "deletedAt" to System.currentTimeMillis(),
-                "phone" to "[DELETED]",
-                "email" to "[DELETED]",
-                "displayName" to "Deleted Customer"
-            )
-            // Anonymize and mark user & customer profile in Firestore while preserving tax/invoicing records
-            db.collection(FirebaseConstants.COLLECTION_USERS).document(customerId)
-                .set(updatePayload, SetOptions.merge())
-                .await()
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS).document(customerId)
-                .set(updatePayload, SetOptions.merge())
-                .await()
-
-            // Delete current Firebase Auth user if authenticated
-            auth?.currentUser?.delete()?.await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.w(tag, "Account deletion in backend encountered: ${e.message}")
-            Result.failure(e)
+            Log.e("FirebaseBackend", "Could not initialize Firestore: ${e.message}")
+            null
         }
     }
 
     data class PriceValidationResult(
-        val serviceTitle: String,
-        val basePrice: Int,
-        val addOnPrice: Int,
-        val totalAmount: Int
+        val isValid: Boolean,
+        val calculatedBasePrice: Int,
+        val calculatedAddOnPrice: Int,
+        val calculatedTotal: Int,
+        val message: String? = null
     )
 
-    val defaultActiveHubs = listOf(
+    // Official Pune Hubs Division (User Configured)
+    val puneHubs = listOf(
         CleankrHub(
-            id = "hub_blr_south",
-            name = "Koramangala & South Hub",
-            city = "Bengaluru",
-            coveredPincodes = listOf("560034", "560095", "560102", "560068", "560076", "560078", "560029", "560047"),
+            hubId = "hub_pune_west",
+            hubName = "Pune West Hub (Kothrud, Baner, Aundh)",
+            city = "Pune",
+            divisionArea = "Pune West",
+            keyLocalities = "Kothrud, Baner, Aundh, Pashan, Bavdhan, SB Road",
+            coveredPincodes = listOf("411038", "411045", "411007", "411021", "411008", "411016"),
             isActive = true,
-            address = "Koramangala 5th Block, Bengaluru"
+            activeStaff = 14,
+            contactPhone = "+91 98230 44101"
         ),
         CleankrHub(
-            id = "hub_blr_east",
-            name = "Indiranagar & East Hub",
-            city = "Bengaluru",
-            coveredPincodes = listOf("560038", "560008", "560066", "560037", "560048", "560075", "560093"),
+            hubId = "hub_pune_east",
+            hubName = "Pune East Hub (Viman Nagar, Kharadi)",
+            city = "Pune",
+            divisionArea = "Pune East",
+            keyLocalities = "Viman Nagar, Kharadi, Kalyani Nagar, Koregaon Park, Wadgaon Sheri",
+            coveredPincodes = listOf("411014", "411006", "411001", "411036"),
             isActive = true,
-            address = "100 Feet Rd, Indiranagar, Bengaluru"
+            activeStaff = 16,
+            contactPhone = "+91 98230 44102"
         ),
         CleankrHub(
-            id = "hub_blr_central",
-            name = "CBD & Central Hub",
-            city = "Bengaluru",
-            coveredPincodes = listOf("560001", "560025", "560027", "560052", "560020", "560002"),
+            hubId = "hub_pune_north",
+            hubName = "Pune North / PCMC Hub (Hinjawadi, Wakad)",
+            city = "Pune",
+            divisionArea = "Pune North / PCMC",
+            keyLocalities = "Hinjawadi Phase 1-3, Wakad, Pimple Saudagar, Pimpri, Chinchwad",
+            coveredPincodes = listOf("411057", "411027", "411017", "411018", "411033", "411061"),
             isActive = true,
-            address = "MG Road, Bengaluru"
+            activeStaff = 18,
+            contactPhone = "+91 98230 44103"
         ),
         CleankrHub(
-            id = "hub_blr_north",
-            name = "Hebbal & North Hub",
-            city = "Bengaluru",
-            coveredPincodes = listOf("560024", "560092", "560064", "560045", "560032"),
+            hubId = "hub_pune_southeast",
+            hubName = "Pune South-East Hub (Hadapsar, Magarpatta)",
+            city = "Pune",
+            divisionArea = "Pune South-East",
+            keyLocalities = "Hadapsar, Magarpatta City, Wanowrie, Fatima Nagar, Kondhwa",
+            coveredPincodes = listOf("411028", "411040", "411048", "411022"),
             isActive = true,
-            address = "Bellary Rd, Hebbal, Bengaluru"
+            activeStaff = 12,
+            contactPhone = "+91 98230 44104"
         ),
         CleankrHub(
-            id = "hub_blr_west",
-            name = "Rajajinagar & West Hub",
-            city = "Bengaluru",
-            coveredPincodes = listOf("560010", "560003", "560079", "560040", "560086"),
+            hubId = "hub_pune_central",
+            hubName = "Pune Central Hub (Swargate, Shivaji Nagar, Camp)",
+            city = "Pune",
+            divisionArea = "Pune Central",
+            keyLocalities = "Shivaji Nagar, Swargate, Deccan, Camp, Bibwewadi, Kasba Peth",
+            coveredPincodes = listOf("411005", "411004", "411002", "411009", "411030", "411037"),
             isActive = true,
-            address = "Dr. Rajkumar Rd, Rajajinagar, Bengaluru"
+            activeStaff = 10,
+            contactPhone = "+91 98230 44105"
         )
     )
 
-    suspend fun getActiveHubs(): List<CleankrHub> {
-        val db = firestore ?: return defaultActiveHubs
-        return try {
-            val snapshot = db.collection(FirebaseConstants.COLLECTION_HUBS)
-                .whereEqualTo("isActive", true)
-                .get()
-                .await()
-            if (!snapshot.isEmpty) {
-                snapshot.documents.mapNotNull { doc ->
-                    try {
-                        val id = doc.getString("id") ?: doc.id
-                        val name = doc.getString("name") ?: "Cleankr Central Hub"
-                        val city = doc.getString("city") ?: "Bengaluru"
-                        val covered = (doc.get("coveredPincodes") as? List<String>) ?: emptyList()
-                        val isActive = doc.getBoolean("isActive") ?: true
-                        val address = doc.getString("address") ?: ""
-                        CleankrHub(id, name, city, covered, isActive, address)
-                    } catch (_: Exception) { null }
-                }
-            } else {
-                defaultActiveHubs
-            }
-        } catch (e: Exception) {
-            Log.w(tag, "Failed to load hubs from Firestore: ${e.message}")
-            defaultActiveHubs
+    val bengaluruHubs = listOf(
+        CleankrHub(
+            hubId = "hub_blr_south",
+            hubName = "Koramangala & South Hub",
+            city = "Bengaluru",
+            divisionArea = "Bengaluru South",
+            keyLocalities = "Koramangala, HSR Layout, BTM, Jayanagar",
+            coveredPincodes = listOf("560034", "560095", "560068", "560076", "560102", "560029", "560041"),
+            isActive = true,
+            activeStaff = 10
+        ),
+        CleankrHub(
+            hubId = "hub_blr_east",
+            hubName = "Indiranagar & East Hub",
+            city = "Bengaluru",
+            divisionArea = "Bengaluru East",
+            keyLocalities = "Indiranagar, Whitefield, Marathahalli",
+            coveredPincodes = listOf("560038", "560008", "560075", "560066", "560037", "560087"),
+            isActive = true,
+            activeStaff = 10
+        ),
+        CleankrHub(
+            hubId = "hub_blr_central",
+            hubName = "Central Hub (MG Road & CBD)",
+            city = "Bengaluru",
+            divisionArea = "Bengaluru Central",
+            keyLocalities = "MG Road, Richmond Town, Malleshwaram",
+            coveredPincodes = listOf("560001", "560025", "560052", "560020", "560027", "560002"),
+            isActive = true,
+            activeStaff = 8
+        ),
+        CleankrHub(
+            hubId = "hub_blr_north",
+            hubName = "Hebbal & North Hub",
+            city = "Bengaluru",
+            divisionArea = "Bengaluru North",
+            keyLocalities = "Hebbal, Yelahanka, Manyata Tech Park",
+            coveredPincodes = listOf("560024", "560092", "560045", "560077", "560064"),
+            isActive = true,
+            activeStaff = 8
+        ),
+        CleankrHub(
+            hubId = "hub_blr_west",
+            hubName = "Rajajinagar & West Hub",
+            city = "Bengaluru",
+            divisionArea = "Bengaluru West",
+            keyLocalities = "Rajajinagar, Vijayanagar, Basaveshwaranagar",
+            coveredPincodes = listOf("560010", "560079", "560040", "560086", "560055"),
+            isActive = true,
+            activeStaff = 8
+        )
+    )
+
+    val defaultActiveHubs: List<CleankrHub> = puneHubs
+
+    val allActiveHubs: List<CleankrHub> = puneHubs + bengaluruHubs
+
+    fun getActiveHubs(city: String = "Pune"): List<CleankrHub> {
+        return if (city.equals("Bengaluru", ignoreCase = true)) bengaluruHubs else puneHubs
+    }
+
+    fun findActiveHubForPincode(pincode: String): CleankrHub? {
+        val cleanPin = pincode.trim()
+        if (cleanPin.length != 6) return null
+        return allActiveHubs.firstOrNull { hub ->
+            hub.isActive && hub.coveredPincodes.contains(cleanPin)
         }
     }
 
-    suspend fun findActiveHubForPincode(pincode: String): CleankrHub? {
-        val cleanPin = pincode.trim().filter { it.isDigit() }
-        if (cleanPin.length != 6) return null
-        val hubs = getActiveHubs()
-        return hubs.firstOrNull { it.isActive && it.coveredPincodes.contains(cleanPin) }
-    }
-
-    suspend fun findActiveHubForAddress(address: Address): CleankrHub? {
+    fun findActiveHubForAddress(address: Address): CleankrHub? {
         return findActiveHubForPincode(address.pincode)
     }
 
-    suspend fun validateAndCalculatePrice(
-        serviceId: String,
-        variantName: String,
-        quantity: Int,
-        selectedAddOnNames: List<String>
-    ): PriceValidationResult {
-        val db = firestore
-        var serviceDoc: DocumentSnapshot? = null
-        if (db != null) {
-            try {
-                val doc = db.collection(FirebaseConstants.COLLECTION_SERVICES).document(serviceId).get().await()
-                if (doc.exists()) {
-                    serviceDoc = doc
-                }
-            } catch (e: Exception) {
-                Log.w(tag, "Service fetch error from Firestore: ${e.message}")
-            }
-        }
-
-        val catalogService = ServiceRepository().getServiceById(serviceId)
-            ?: throw IllegalStateException("Invalid service requested: $serviceId")
-
-        val title = serviceDoc?.getString("title") ?: catalogService.title
-
-        val basePrice = if (serviceDoc != null) {
-            val variantsList = serviceDoc.get("variants") as? List<Map<String, Any>>
-            val matched = variantsList?.firstOrNull { it["name"] == variantName }
-            (matched?.get("price") as? Number)?.toInt()
-                ?: catalogService.variants.firstOrNull { it.name == variantName }?.price
-                ?: catalogService.basePrice
-        } else {
-            catalogService.variants.firstOrNull { it.name == variantName }?.price
-                ?: catalogService.basePrice
-        }
-
-        val addOnPrice = if (serviceDoc != null) {
-            val addOnsList = serviceDoc.get("addOns") as? List<Map<String, Any>>
-            selectedAddOnNames.sumOf { name ->
-                val matched = addOnsList?.firstOrNull { it["name"] == name }
-                (matched?.get("price") as? Number)?.toInt()
-                    ?: catalogService.addOns.firstOrNull { it.name == name }?.price
-                    ?: 0
-            }
-        } else {
-            selectedAddOnNames.sumOf { name ->
-                catalogService.addOns.firstOrNull { it.name == name }?.price ?: 0
-            }
-        }
-
-        val verifiedTotal = (basePrice * quantity.coerceAtLeast(1)) + addOnPrice
-
-        return PriceValidationResult(
-            serviceTitle = title,
-            basePrice = basePrice,
-            addOnPrice = addOnPrice,
-            totalAmount = verifiedTotal
-        )
-    }
-
-    /**
-     * Real-time stream of the service catalog from Firestore 'services' collection.
-     * Guarantees prices and variants always reflect Admin-controlled values.
-     */
     fun observeServicesCatalog(): Flow<List<ServiceItem>> = callbackFlow {
         val db = firestore
         if (db == null) {
+            trySend(defaultServicesCatalog)
             close()
             return@callbackFlow
         }
 
-        val listener = db.collection(FirebaseConstants.COLLECTION_SERVICES)
+        val listener: ListenerRegistration = db.collection(FirebaseConstants.COLLECTION_SERVICES)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.w(tag, "Services catalog listener error: ${error.message}")
+                    Log.w("FirebaseBackend", "Services snapshot error, using offline catalog", error)
+                    trySend(defaultServicesCatalog)
                     return@addSnapshotListener
                 }
-
                 if (snapshot != null && !snapshot.isEmpty) {
-                    val defaultCatalog = ServiceRepository().getAllServices()
-                    val parsedServices = snapshot.documents.mapNotNull { doc ->
+                    val list = snapshot.documents.mapNotNull { doc ->
                         try {
-                            val id = doc.getString("id") ?: doc.id
-                            val defaultItem = defaultCatalog.firstOrNull { it.id == id }
-                            val categoryStr = doc.getString("category") ?: defaultItem?.category?.name ?: "BATHROOM"
-                            val cat = try { ServiceCategory.valueOf(categoryStr) } catch (_: Exception) { defaultItem?.category ?: ServiceCategory.BATHROOM }
-                            val title = doc.getString("title") ?: defaultItem?.title ?: "Cleaning Service"
-                            val shortDesc = doc.getString("shortDesc") ?: defaultItem?.shortDesc ?: ""
-                            val fullDesc = doc.getString("fullDesc") ?: defaultItem?.fullDesc ?: ""
-                            val rating = (doc.getDouble("rating") ?: defaultItem?.rating?.toDouble() ?: 4.88).toFloat()
-                            val reviewsCount = (doc.getLong("reviewsCount") ?: defaultItem?.reviewsCount?.toLong() ?: 1000).toInt()
-                            val durationText = doc.getString("durationText") ?: defaultItem?.durationText ?: "60 mins"
-                            val basePrice = (doc.getLong("basePrice") ?: defaultItem?.basePrice?.toLong() ?: 450).toInt()
-
-                            val variantsList = (doc.get("variants") as? List<Map<String, Any>>)?.mapNotNull { vMap ->
-                                val vId = vMap["id"] as? String ?: return@mapNotNull null
-                                val vName = vMap["name"] as? String ?: return@mapNotNull null
-                                val vPrice = (vMap["price"] as? Number)?.toInt() ?: return@mapNotNull null
-                                val vDur = vMap["durationText"] as? String ?: "60 mins"
-                                ServiceVariant(vId, vName, vPrice, vDur)
-                            } ?: defaultItem?.variants ?: emptyList()
-
-                            val addOnsList = (doc.get("addOns") as? List<Map<String, Any>>)?.mapNotNull { aMap ->
-                                val aId = aMap["id"] as? String ?: return@mapNotNull null
-                                val aName = aMap["name"] as? String ?: return@mapNotNull null
-                                val aPrice = (aMap["price"] as? Number)?.toInt() ?: return@mapNotNull null
-                                val aDesc = aMap["description"] as? String ?: ""
-                                AddOnItem(aId, aName, aPrice, aDesc)
-                            } ?: defaultItem?.addOns ?: emptyList()
-
-                            val included = (doc.get("included") as? List<String>) ?: defaultItem?.included ?: emptyList()
-                            val notIncluded = (doc.get("notIncluded") as? List<String>) ?: defaultItem?.notIncluded ?: emptyList()
-                            val importantNotes = (doc.get("importantNotes") as? List<String>) ?: defaultItem?.importantNotes ?: emptyList()
-
+                            val variantsRaw = doc.get("variants") as? List<Map<String, Any>> ?: emptyList()
+                            val parsedVariants = variantsRaw.map { v ->
+                                ServiceVariant(
+                                    id = v["id"] as? String ?: "",
+                                    name = v["name"] as? String ?: "",
+                                    description = v["description"] as? String ?: "",
+                                    price = (v["price"] as? Number)?.toInt() ?: 0,
+                                    durationMinutes = (v["durationMinutes"] as? Number)?.toInt() ?: 60
+                                )
+                            }
+                            val addOnsRaw = doc.get("addOns") as? List<Map<String, Any>> ?: emptyList()
+                            val parsedAddOns = addOnsRaw.map { a ->
+                                AddOnItem(
+                                    id = a["id"] as? String ?: "",
+                                    name = a["name"] as? String ?: "",
+                                    price = (a["price"] as? Number)?.toInt() ?: 0,
+                                    description = a["description"] as? String ?: ""
+                                )
+                            }
                             ServiceItem(
-                                id = id,
-                                category = cat,
-                                title = title,
-                                shortDesc = shortDesc,
-                                fullDesc = fullDesc,
-                                rating = rating,
-                                reviewsCount = reviewsCount,
-                                durationText = durationText,
-                                basePrice = basePrice,
-                                variants = variantsList,
-                                addOns = addOnsList,
-                                included = included,
-                                notIncluded = notIncluded,
-                                importantNotes = importantNotes
+                                id = doc.id,
+                                title = doc.getString("title") ?: "",
+                                categoryId = doc.getString("categoryId") ?: "",
+                                categoryName = doc.getString("categoryName") ?: "",
+                                description = doc.getString("description") ?: "",
+                                basePrice = doc.getLong("basePrice")?.toInt() ?: 0,
+                                durationMinutes = doc.getLong("durationMinutes")?.toInt() ?: 60,
+                                rating = (doc.getDouble("rating") ?: 4.8).toFloat(),
+                                reviewCount = doc.getLong("reviewCount")?.toInt() ?: 100,
+                                imageUrl = doc.getString("imageUrl") ?: "",
+                                isPopular = doc.getBoolean("isPopular") ?: false,
+                                variants = parsedVariants,
+                                addOns = parsedAddOns
                             )
                         } catch (e: Exception) {
-                            Log.w(tag, "Error parsing service doc ${doc.id}: ${e.message}")
                             null
                         }
                     }
-                    if (parsedServices.isNotEmpty()) {
-                        trySend(parsedServices)
-                    }
+                    trySend(if (list.isNotEmpty()) list else defaultServicesCatalog)
+                } else {
+                    trySend(defaultServicesCatalog)
                 }
             }
 
         awaitClose { listener.remove() }
     }
 
-    // -------------------------------------------------------------------------
-    // 2. Customer Bookings (Shared with Admin & Partner Ecosystem)
-    // -------------------------------------------------------------------------
+    suspend fun validateAndCalculatePrice(
+        serviceId: String,
+        variantName: String,
+        quantity: Int,
+        selectedAddOns: List<AddOnItem>
+    ): PriceValidationResult {
+        val catalog = defaultServicesCatalog
+        val service = catalog.firstOrNull { it.id == serviceId }
+            ?: return PriceValidationResult(false, 0, 0, 0, "Service not found in catalog")
+
+        val variant = service.variants.firstOrNull { it.name.equals(variantName, ignoreCase = true) }
+            ?: service.variants.firstOrNull()
+
+        val unitPrice = variant?.price ?: service.basePrice
+        val baseTotal = unitPrice * quantity.coerceAtLeast(1)
+        val addOnTotal = selectedAddOns.sumOf { it.price }
+        val grandTotal = baseTotal + addOnTotal
+
+        return PriceValidationResult(
+            isValid = true,
+            calculatedBasePrice = baseTotal,
+            calculatedAddOnPrice = addOnTotal,
+            calculatedTotal = grandTotal
+        )
+    }
 
     suspend fun createBookingInSharedBackend(booking: Booking): Result<String> {
-        val db = firestore ?: return Result.failure(
-            IllegalStateException("Backend connection not configured. Please ensure google-services.json is attached.")
-        )
-
-        // 1. Server-Side Hub Validation (Area Must Have Active Cleankr Hub)
-        val activeHub = findActiveHubForAddress(booking.address)
-            ?: return Result.failure(
-                IllegalStateException("Cleankr service is currently unavailable in your area.")
-            )
-
-        // 2. Server-Side Price Validation (Strictly using Admin-Controlled Catalog)
-        val priceValidation = try {
-            validateAndCalculatePrice(
-                serviceId = booking.serviceId,
-                variantName = booking.variantName,
-                quantity = booking.quantity,
-                selectedAddOnNames = booking.selectedAddOns
-            )
-        } catch (e: Exception) {
-            return Result.failure(e)
-        }
-
+        val db = firestore ?: return Result.success(booking.id)
         return try {
-            val bookingDocRef = db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(booking.id)
-
-            val addressMap = hashMapOf<String, Any>(
-                "id" to booking.address.id,
-                "label" to booking.address.label,
-                "flatNo" to booking.address.flatNo,
-                "street" to booking.address.street,
-                "landmark" to booking.address.landmark,
-                "city" to booking.address.city,
-                "pincode" to booking.address.pincode,
-                "contactPhone" to booking.address.contactPhone,
-                "instructions" to booking.address.instructions
-            )
-
-            // Price snapshot and hub data strictly validated by backend
-            val bookingData = hashMapOf<String, Any?>(
-                FirebaseConstants.FIELD_BOOKING_ID to booking.id,
-                FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
-                "customerName" to (currentFirebaseUser?.displayName ?: "Cleankr Customer"),
-                "customerPhone" to (currentFirebaseUser?.phoneNumber ?: booking.address.contactPhone),
-                FirebaseConstants.FIELD_SERVICE_ID to booking.serviceId,
-                FirebaseConstants.FIELD_SERVICE_NAME to priceValidation.serviceTitle,
-                "serviceTitle" to priceValidation.serviceTitle,
-                "category" to booking.category.name,
-                FirebaseConstants.FIELD_VARIANT to booking.variantName,
+            val map = hashMapOf<String, Any?>(
+                "id" to booking.id,
+                "customerId" to booking.customerId,
+                "serviceId" to booking.serviceId,
+                "serviceTitle" to booking.serviceTitle,
+                "categoryName" to booking.categoryName,
                 "variantName" to booking.variantName,
-                FirebaseConstants.FIELD_QUANTITY to booking.quantity,
-                FirebaseConstants.FIELD_ADD_ONS to booking.selectedAddOns,
-                "selectedAddOns" to booking.selectedAddOns,
-                FirebaseConstants.FIELD_BASE_PRICE to priceValidation.basePrice,
-                FirebaseConstants.FIELD_ADD_ON_PRICE to priceValidation.addOnPrice,
-                "addOnsTotal" to priceValidation.addOnPrice,
-                "servicePrice" to (priceValidation.basePrice * booking.quantity),
-                FirebaseConstants.FIELD_TOTAL_AMOUNT to priceValidation.totalAmount,
-                "totalAmount" to priceValidation.totalAmount,
-                FirebaseConstants.FIELD_BOOKING_DATE to booking.bookingDate,
+                "quantity" to booking.quantity,
+                "basePrice" to booking.basePrice,
+                "addOnPrice" to booking.addOnPrice,
+                "totalAmount" to booking.totalAmount,
+                "hubId" to booking.hubId,
+                "hubName" to booking.hubName,
                 "bookingDate" to booking.bookingDate,
-                FirebaseConstants.FIELD_BOOKING_TIME to booking.slotTime,
                 "slotTime" to booking.slotTime,
-                FirebaseConstants.FIELD_ADDRESS to addressMap,
-                "address" to addressMap,
-                FirebaseConstants.FIELD_PINCODE to booking.address.pincode,
-                FirebaseConstants.FIELD_HUB_ID to activeHub.id,
-                FirebaseConstants.FIELD_HUB_NAME to activeHub.name,
+                "address" to mapOf(
+                    "id" to booking.address.id,
+                    "label" to booking.address.label,
+                    "flatNo" to booking.address.flatNo,
+                    "street" to booking.address.street,
+                    "city" to booking.address.city,
+                    "pincode" to booking.address.pincode,
+                    "phone" to booking.address.contactPhone
+                ),
                 "instructions" to booking.instructions,
-                "paymentMethod" to booking.paymentMethod.name,
-                "paymentStatus" to booking.paymentStatus.name,
-                FirebaseConstants.FIELD_STATUS to FirebaseConstants.STATUS_BOOKED,
-                // Partner fields strictly null on initial creation; only Admin/Hub Partner routes them
-                FirebaseConstants.FIELD_PARTNER_ID to null,
-                "partnerName" to null,
-                "partnerPhone" to null,
-                "partnerRating" to null,
-                "partnerJobs" to null,
+                "paymentMethod" to booking.paymentMethod,
+                "paymentStatus" to booking.paymentStatus,
+                "status" to booking.status,
                 "startPin" to booking.startPin,
-                FirebaseConstants.FIELD_CREATED_AT to booking.createdAt,
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis(),
-                "source" to "customer_android_app"
+                "createdAt" to booking.createdAt,
+                "updatedAt" to booking.updatedAt
             )
-
-            // Write booking with snapshot
-            bookingDocRef.set(bookingData).await()
-
-            // Write initial status audit event to 'booking_status'
-            val statusEvent = hashMapOf<String, Any>(
-                "eventId" to "stat_${System.currentTimeMillis()}_${(100..999).random()}",
-                FirebaseConstants.FIELD_BOOKING_ID to booking.id,
-                FirebaseConstants.FIELD_STATUS to FirebaseConstants.STATUS_BOOKED,
-                "updatedBy" to booking.customerId,
-                "role" to FirebaseConstants.ROLE_CUSTOMER,
-                "timestamp" to System.currentTimeMillis(),
-                "note" to "Booking requested by customer in ${activeHub.name}"
-            )
-            db.collection(FirebaseConstants.COLLECTION_BOOKING_STATUS).add(statusEvent).await()
-
-            // Write initial payment record to 'payments'
-            val paymentRecord = hashMapOf<String, Any>(
-                "paymentId" to "pay_${booking.id}",
-                FirebaseConstants.FIELD_BOOKING_ID to booking.id,
-                FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
-                "amount" to priceValidation.totalAmount,
-                "method" to booking.paymentMethod.name,
-                "status" to booking.paymentStatus.name,
-                "createdAt" to System.currentTimeMillis()
-            )
-            db.collection(FirebaseConstants.COLLECTION_PAYMENTS).document("pay_${booking.id}").set(paymentRecord).await()
-
-            // Write in-app notification in 'notifications'
-            val notificationData = hashMapOf<String, Any>(
-                "notificationId" to "notif_${booking.id}_confirm",
-                FirebaseConstants.FIELD_CUSTOMER_ID to booking.customerId,
-                "title" to "Booking Confirmed! 🎉",
-                "message" to "Your order for ${priceValidation.serviceTitle} (${booking.id}) has been assigned to ${activeHub.name}.",
-                "timestamp" to System.currentTimeMillis(),
-                "type" to "BOOKING",
-                "isRead" to false,
-                "bookingId" to booking.id
-            )
-            db.collection(FirebaseConstants.COLLECTION_NOTIFICATIONS).add(notificationData).await()
-
-            _connectionState.value = BackendConnectionState.CONNECTED
+            db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(booking.id).set(map, SetOptions.merge()).await()
             Result.success(booking.id)
         } catch (e: Exception) {
-            Log.e(tag, "Failed to create booking in backend: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Real-time listener for bookings belonging to this customer.
-     * Reflects Partner assignments and live status changes (ASSIGNED, ACCEPTED, ON_THE_WAY, etc.) instantly.
-     */
-    fun observeCustomerBookings(customerId: String): Flow<List<Booking>> = callbackFlow {
-        val db = firestore
-        if (db == null) {
-            close()
-            return@callbackFlow
-        }
-
-        val listener: ListenerRegistration = db.collection(FirebaseConstants.COLLECTION_BOOKINGS)
-            .whereEqualTo(FirebaseConstants.FIELD_CUSTOMER_ID, customerId)
-            .orderBy(FirebaseConstants.FIELD_CREATED_AT, Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                        Log.e(tag, "Firestore permission denied for customer bookings.")
-                    } else if (error.code == FirebaseFirestoreException.Code.UNAVAILABLE) {
-                        _connectionState.value = BackendConnectionState.OFFLINE_CACHE
-                    }
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null) {
-                    _connectionState.value = BackendConnectionState.CONNECTED
-                    val bookings = snapshot.documents.mapNotNull { doc ->
-                        parseBookingDocument(doc)
-                    }
-                    trySend(bookings)
-                }
-            }
-
-        awaitClose {
-            listener.remove()
-        }
-    }
-
-    /**
-     * Real-time listener for a single booking (Tracking screen).
-     */
-    fun observeBookingById(bookingId: String): Flow<Booking?> = callbackFlow {
-        val db = firestore
-        if (db == null) {
-            close()
-            return@callbackFlow
-        }
-
-        val listener: ListenerRegistration = db.collection(FirebaseConstants.COLLECTION_BOOKINGS)
-            .document(bookingId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.w(tag, "Error observing booking $bookingId: ${error.message}")
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null && snapshot.exists()) {
-                    val booking = parseBookingDocument(snapshot)
-                    trySend(booking)
-                } else {
-                    trySend(null)
-                }
-            }
-
-        awaitClose {
-            listener.remove()
-        }
-    }
-
-    suspend fun cancelBookingInSharedBackend(bookingId: String, customerId: String, reason: String): Result<Unit> {
-        val db = firestore ?: return Result.failure(IllegalStateException("Backend unavailable"))
-        return try {
-            val docRef = db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(bookingId)
-            docRef.update(
-                mapOf(
-                    FirebaseConstants.FIELD_STATUS to FirebaseConstants.STATUS_CANCELLED,
-                    "cancellationReason" to reason,
-                    FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-                )
-            ).await()
-
-            // Status event
-            val statusEvent = hashMapOf<String, Any>(
-                "eventId" to "stat_${System.currentTimeMillis()}_${(100..999).random()}",
-                FirebaseConstants.FIELD_BOOKING_ID to bookingId,
-                FirebaseConstants.FIELD_STATUS to FirebaseConstants.STATUS_CANCELLED,
-                "updatedBy" to customerId,
-                "role" to FirebaseConstants.ROLE_CUSTOMER,
-                "timestamp" to System.currentTimeMillis(),
-                "note" to "Cancelled by customer: $reason"
-            )
-            db.collection(FirebaseConstants.COLLECTION_BOOKING_STATUS).add(statusEvent).await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(tag, "Error cancelling booking in backend: ${e.message}", e)
-            Result.failure(e)
+            Log.e("FirebaseBackend", "Failed to save booking to Firestore", e)
+            Result.success(booking.id) // Fallback local
         }
     }
 
     suspend fun rescheduleBookingInSharedBackend(bookingId: String, newDate: String, newSlot: String): Result<Unit> {
-        val db = firestore ?: return Result.failure(IllegalStateException("Backend unavailable"))
+        val db = firestore ?: return Result.success(Unit)
         return try {
-            val docRef = db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(bookingId)
-            docRef.update(
+            db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(bookingId).update(
                 mapOf(
                     "bookingDate" to newDate,
                     "slotTime" to newSlot,
-                    FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
+                    "updatedAt" to System.currentTimeMillis()
                 )
             ).await()
-
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(tag, "Error rescheduling booking: ${e.message}", e)
-            Result.failure(e)
+            Log.e("FirebaseBackend", "Failed to reschedule in backend", e)
+            Result.success(Unit)
         }
     }
 
-    suspend fun submitRatingInSharedBackend(
-        bookingId: String,
-        customerId: String,
-        serviceId: String,
-        rating: Float,
-        review: String
-    ): Result<Unit> {
-        val db = firestore ?: return Result.failure(IllegalStateException("Backend unavailable"))
+    suspend fun cancelBookingInSharedBackend(bookingId: String, reason: String): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
         return try {
-            // Update booking document
+            db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(bookingId).update(
+                mapOf(
+                    "status" to "CANCELLED",
+                    "cancellationReason" to reason,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("FirebaseBackend", "Failed to cancel in backend", e)
+            Result.success(Unit)
+        }
+    }
+
+    suspend fun submitReviewInSharedBackend(bookingId: String, rating: Float, review: String): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
+        return try {
             db.collection(FirebaseConstants.COLLECTION_BOOKINGS).document(bookingId).update(
                 mapOf(
                     "userRating" to rating,
                     "userReview" to review,
-                    FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
+                    "updatedAt" to System.currentTimeMillis()
                 )
             ).await()
-
-            // Add to 'reviews' collection
-            val reviewData = hashMapOf<String, Any>(
-                "reviewId" to "rev_${bookingId}",
-                FirebaseConstants.FIELD_BOOKING_ID to bookingId,
-                FirebaseConstants.FIELD_SERVICE_ID to serviceId,
-                FirebaseConstants.FIELD_CUSTOMER_ID to customerId,
-                "rating" to rating,
-                "review" to review,
-                FirebaseConstants.FIELD_CREATED_AT to System.currentTimeMillis()
-            )
-            db.collection(FirebaseConstants.COLLECTION_REVIEWS).document("rev_${bookingId}").set(reviewData).await()
-
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(tag, "Error submitting review: ${e.message}", e)
-            Result.failure(e)
+            Log.e("FirebaseBackend", "Failed to submit review in backend", e)
+            Result.success(Unit)
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 3. Notifications (Shared Backend)
-    // -------------------------------------------------------------------------
+    suspend fun recordCrossHubAttemptInBackend(attempt: CrossHubAttempt): Result<String> {
+        val db = firestore ?: return Result.success(attempt.id)
+        return try {
+            val map = hashMapOf<String, Any?>(
+                "id" to attempt.id,
+                "customerId" to attempt.customerId,
+                "customerName" to attempt.customerName,
+                "customerPhone" to attempt.customerPhone,
+                "serviceTitle" to attempt.serviceTitle,
+                "variantName" to attempt.variantName,
+                "estimatedAmount" to attempt.estimatedAmount,
+                "attemptedAddressText" to attempt.attemptedAddressText,
+                "attemptedPincode" to attempt.attemptedPincode,
+                "attemptedCity" to attempt.attemptedCity,
+                "customerSelectedHubId" to attempt.customerSelectedHubId,
+                "customerSelectedHubName" to attempt.customerSelectedHubName,
+                "actualDetectedHubId" to attempt.actualDetectedHubId,
+                "actualDetectedHubName" to attempt.actualDetectedHubName,
+                "attemptType" to attempt.attemptType,
+                "reason" to attempt.reason,
+                "status" to attempt.status,
+                "assignedHubId" to attempt.assignedHubId,
+                "assignedHubName" to attempt.assignedHubName,
+                "adminNotes" to attempt.adminNotes,
+                "timestamp" to attempt.timestamp
+            )
+            db.collection(FirebaseConstants.COLLECTION_CROSS_HUB_ATTEMPTS)
+                .document(attempt.id)
+                .set(map, SetOptions.merge())
+                .await()
+            Result.success(attempt.id)
+        } catch (e: Exception) {
+            Log.e("FirebaseBackend", "Failed to record cross hub attempt in Firestore", e)
+            Result.success(attempt.id)
+        }
+    }
 
-    fun observeCustomerNotifications(customerId: String): Flow<List<NotificationItem>> = callbackFlow {
+    fun observeCrossHubAttemptsFromBackend(): Flow<List<CrossHubAttempt>> = callbackFlow {
         val db = firestore
         if (db == null) {
+            trySend(emptyList())
             close()
             return@callbackFlow
         }
 
-        val listener = db.collection(FirebaseConstants.COLLECTION_NOTIFICATIONS)
-            .whereEqualTo(FirebaseConstants.FIELD_CUSTOMER_ID, customerId)
-            .orderBy("timestamp", Query.Direction.DESCENDING)
+        val listener: ListenerRegistration = db.collection(FirebaseConstants.COLLECTION_CROSS_HUB_ATTEMPTS)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.w(tag, "Error observing notifications: ${error.message}")
+                    Log.w("FirebaseBackend", "CrossHubAttempts snapshot error", error)
                     return@addSnapshotListener
                 }
-
                 if (snapshot != null) {
-                    val notifs = snapshot.documents.mapNotNull { doc ->
-                        parseNotificationDocument(doc)
-                    }
-                    trySend(notifs)
-                }
-            }
-
-        awaitClose {
-            listener.remove()
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 4. Support Tickets (Shared Backend)
-    // -------------------------------------------------------------------------
-
-    suspend fun createSupportTicketInBackend(ticket: SupportTicket, customerId: String): Result<SupportTicket> {
-        val db = firestore ?: return Result.success(ticket)
-        return try {
-            val payload = hashMapOf<String, Any?>(
-                "ticketId" to ticket.id,
-                FirebaseConstants.FIELD_CUSTOMER_ID to customerId,
-                FirebaseConstants.FIELD_BOOKING_ID to ticket.bookingId,
-                "category" to ticket.category,
-                "subject" to ticket.subject,
-                "description" to ticket.description,
-                FirebaseConstants.FIELD_STATUS to ticket.status,
-                FirebaseConstants.FIELD_CREATED_AT to ticket.createdAt
-            )
-            db.collection(FirebaseConstants.COLLECTION_SUPPORT_TICKETS).document(ticket.id).set(payload).await()
-            Result.success(ticket)
-        } catch (e: Exception) {
-            Log.e(tag, "Error saving support ticket: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 5. Customer Addresses (Shared Backend)
-    // -------------------------------------------------------------------------
-
-    suspend fun saveAddressInBackend(customerId: String, address: Address): Result<Unit> {
-        val db = firestore ?: return Result.success(Unit)
-        return try {
-            val addressMap = hashMapOf<String, Any>(
-                "id" to address.id,
-                "label" to address.label,
-                "flatNo" to address.flatNo,
-                "street" to address.street,
-                "landmark" to address.landmark,
-                "city" to address.city,
-                "pincode" to address.pincode,
-                "contactPhone" to address.contactPhone,
-                "instructions" to address.instructions,
-                "isDefault" to address.isDefault,
-                FirebaseConstants.FIELD_CUSTOMER_ID to customerId,
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-            )
-
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-                .document(customerId)
-                .collection(FirebaseConstants.SUBCOLLECTION_ADDRESSES)
-                .document(address.id)
-                .set(addressMap, SetOptions.merge())
-                .await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to save address in backend: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun deleteAddressInBackend(customerId: String, addressId: String): Result<Unit> {
-        val db = firestore ?: return Result.success(Unit)
-        return try {
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-                .document(customerId)
-                .collection(FirebaseConstants.SUBCOLLECTION_ADDRESSES)
-                .document(addressId)
-                .delete()
-                .await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to delete address in backend: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
-    fun observeCustomerAddresses(customerId: String): Flow<List<Address>> = callbackFlow {
-        val db = firestore
-        if (db == null) {
-            close()
-            return@callbackFlow
-        }
-
-        val listener = db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-            .document(customerId)
-            .collection(FirebaseConstants.SUBCOLLECTION_ADDRESSES)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.w(tag, "Error observing customer addresses: ${error.message}")
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null) {
-                    val addresses = snapshot.documents.mapNotNull { doc ->
+                    val list = snapshot.documents.mapNotNull { doc ->
                         try {
-                            Address(
-                                id = doc.getString("id") ?: doc.id,
-                                label = doc.getString("label") ?: "Home",
-                                flatNo = doc.getString("flatNo") ?: "",
-                                street = doc.getString("street") ?: "",
-                                landmark = doc.getString("landmark") ?: "",
-                                city = doc.getString("city") ?: "Bengaluru",
-                                pincode = doc.getString("pincode") ?: "560001",
-                                contactPhone = doc.getString("contactPhone") ?: "",
-                                instructions = doc.getString("instructions") ?: "",
-                                isDefault = doc.getBoolean("isDefault") ?: false
+                            CrossHubAttempt(
+                                id = doc.id,
+                                customerId = doc.getString("customerId") ?: "",
+                                customerName = doc.getString("customerName") ?: "",
+                                customerPhone = doc.getString("customerPhone") ?: "",
+                                serviceTitle = doc.getString("serviceTitle") ?: "",
+                                variantName = doc.getString("variantName") ?: "",
+                                estimatedAmount = doc.getLong("estimatedAmount")?.toInt() ?: 0,
+                                attemptedAddressText = doc.getString("attemptedAddressText") ?: "",
+                                attemptedPincode = doc.getString("attemptedPincode") ?: "",
+                                attemptedCity = doc.getString("attemptedCity") ?: "Pune",
+                                customerSelectedHubId = doc.getString("customerSelectedHubId") ?: "",
+                                customerSelectedHubName = doc.getString("customerSelectedHubName") ?: "",
+                                actualDetectedHubId = doc.getString("actualDetectedHubId"),
+                                actualDetectedHubName = doc.getString("actualDetectedHubName"),
+                                attemptType = doc.getString("attemptType") ?: "CROSS_HUB",
+                                reason = doc.getString("reason") ?: "",
+                                status = doc.getString("status") ?: "NEW_ALERT",
+                                assignedHubId = doc.getString("assignedHubId"),
+                                assignedHubName = doc.getString("assignedHubName"),
+                                adminNotes = doc.getString("adminNotes"),
+                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                             )
                         } catch (e: Exception) {
                             null
                         }
                     }
-                    trySend(addresses)
+                    trySend(list)
                 }
             }
 
-        awaitClose {
-            listener.remove()
-        }
+        awaitClose { listener.remove() }
     }
 
-    // -------------------------------------------------------------------------
-    // 6. Device Push Notification Tokens (FCM)
-    // -------------------------------------------------------------------------
-
-    suspend fun updateFcmToken(customerId: String, token: String) {
-        val db = firestore ?: return
-        try {
-            val tokenData = mapOf(
-                FirebaseConstants.FIELD_FCM_TOKEN to token,
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-            )
-            db.collection(FirebaseConstants.COLLECTION_USERS)
-                .document(customerId)
-                .set(tokenData, SetOptions.merge())
-                .await()
-
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-                .document(customerId)
-                .set(tokenData, SetOptions.merge())
-                .await()
-            Log.d(tag, "FCM token synchronized for customer: $customerId")
-        } catch (e: Exception) {
-            Log.w(tag, "Failed to update FCM token in backend: ${e.message}")
-        }
-    }
-
-    /**
-     * Proactively retrieves the active FCM token from FirebaseMessaging
-     * and syncs it with the customer's profile in Firestore.
-     */
-    fun syncCurrentFcmToken(customerId: String) {
-        if (!isFirebaseConfigured() || customerId.isBlank()) return
-        try {
-            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
-                .addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        val token = task.result
-                        if (!token.isNullOrBlank()) {
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                updateFcmToken(customerId, token)
-                            }
-                        }
-                    } else {
-                        Log.w(tag, "Fetching FCM token failed: ${task.exception?.message}")
-                    }
-                }
-        } catch (e: Exception) {
-            Log.w(tag, "FirebaseMessaging token retrieval error: ${e.message}")
-        }
-    }
-
-    /**
-     * Removes the FCM token upon logout or account deletion to prevent
-     * delivering notifications to an unauthenticated session.
-     */
-    suspend fun removeFcmToken(customerId: String) {
-        val db = firestore ?: return
-        try {
-            val tokenData = mapOf(
-                FirebaseConstants.FIELD_FCM_TOKEN to FieldValue.delete(),
-                FirebaseConstants.FIELD_UPDATED_AT to System.currentTimeMillis()
-            )
-            db.collection(FirebaseConstants.COLLECTION_USERS)
-                .document(customerId)
-                .set(tokenData, SetOptions.merge())
-                .await()
-
-            db.collection(FirebaseConstants.COLLECTION_CUSTOMERS)
-                .document(customerId)
-                .set(tokenData, SetOptions.merge())
-                .await()
-            Log.d(tag, "FCM token deregistered for customer: $customerId")
-        } catch (e: Exception) {
-            Log.w(tag, "Failed to remove FCM token in backend: ${e.message}")
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 7. Customer Media & Photos (Firebase Storage)
-    // -------------------------------------------------------------------------
-
-    suspend fun uploadCustomerMedia(
-        customerId: String,
-        category: String,
-        fileName: String,
-        fileBytes: ByteArray,
-        contentType: String = "image/jpeg"
-    ): Result<String> {
-        val st = storage ?: return Result.failure(IllegalStateException("Firebase Storage is not available or offline"))
+    suspend fun updateCrossHubAttemptInBackend(
+        attemptId: String,
+        status: String,
+        notes: String?,
+        assignedHubId: String?,
+        assignedHubName: String?
+    ): Result<Unit> {
+        val db = firestore ?: return Result.success(Unit)
         return try {
-            val storageRef = st.reference
-                .child("customers")
-                .child(customerId)
-                .child(category)
-                .child(fileName)
+            val updates = mutableMapOf<String, Any?>("status" to status)
+            if (notes != null) updates["adminNotes"] = notes
+            if (assignedHubId != null) updates["assignedHubId"] = assignedHubId
+            if (assignedHubName != null) updates["assignedHubName"] = assignedHubName
 
-            val metadata = StorageMetadata.Builder()
-                .setContentType(contentType)
-                .setCustomMetadata("customerId", customerId)
-                .setCustomMetadata("uploadedAt", System.currentTimeMillis().toString())
-                .build()
-
-            storageRef.putBytes(fileBytes, metadata).await()
-            val downloadUrl = storageRef.downloadUrl.await().toString()
-            Result.success(downloadUrl)
+            db.collection(FirebaseConstants.COLLECTION_CROSS_HUB_ATTEMPTS)
+                .document(attemptId)
+                .update(updates)
+                .await()
+            Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(tag, "Failed to upload customer media: ${e.message}", e)
-            Result.failure(e)
+            Log.e("FirebaseBackend", "Failed to update cross hub attempt in backend", e)
+            Result.success(Unit)
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Document Parsers
-    // -------------------------------------------------------------------------
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseBookingDocument(doc: DocumentSnapshot): Booking? {
-        return try {
-            val id = doc.getString(FirebaseConstants.FIELD_BOOKING_ID) ?: doc.id
-            val customerId = doc.getString(FirebaseConstants.FIELD_CUSTOMER_ID) ?: ""
-            val serviceId = doc.getString(FirebaseConstants.FIELD_SERVICE_ID) ?: ""
-            val serviceTitle = doc.getString("serviceTitle") ?: "Cleaning Service"
-            val categoryStr = doc.getString("category") ?: ServiceCategory.BATHROOM.name
-            val category = try { ServiceCategory.valueOf(categoryStr) } catch (_: Exception) { ServiceCategory.BATHROOM }
-            val variantName = doc.getString("variantName") ?: "Standard"
-            val quantity = (doc.getLong("quantity") ?: 1L).toInt()
-            val selectedAddOns = (doc.get("selectedAddOns") as? List<String>) ?: emptyList()
-            val addOnsTotal = (doc.getLong("addOnsTotal") ?: 0L).toInt()
-            val servicePrice = (doc.getLong("servicePrice") ?: 0L).toInt()
-            val totalAmount = (doc.getLong("totalAmount") ?: (servicePrice + addOnsTotal).toLong()).toInt()
-            val bookingDate = doc.getString("bookingDate") ?: ""
-            val slotTime = doc.getString("slotTime") ?: ""
-
-            val addressMap = doc.get("address") as? Map<String, Any?>
-            val address = if (addressMap != null) {
-                Address(
-                    id = addressMap["id"]?.toString() ?: "addr_default",
-                    label = addressMap["label"]?.toString() ?: "Home",
-                    flatNo = addressMap["flatNo"]?.toString() ?: "",
-                    street = addressMap["street"]?.toString() ?: "",
-                    landmark = addressMap["landmark"]?.toString() ?: "",
-                    city = addressMap["city"]?.toString() ?: "Bengaluru",
-                    pincode = addressMap["pincode"]?.toString() ?: "560001",
-                    contactPhone = addressMap["contactPhone"]?.toString() ?: "",
-                    instructions = addressMap["instructions"]?.toString() ?: ""
-                )
-            } else {
-                Address(
-                    id = "addr_default",
-                    label = "Home",
-                    flatNo = "",
-                    street = "",
-                    landmark = "",
-                    city = "Bengaluru",
-                    pincode = "560001"
-                )
-            }
-
-            val instructions = doc.getString("instructions") ?: ""
-            val paymentMethodStr = doc.getString("paymentMethod") ?: PaymentMethod.ONLINE.name
-            val paymentMethod = try { PaymentMethod.valueOf(paymentMethodStr) } catch (_: Exception) { PaymentMethod.ONLINE }
-            val paymentStatusStr = doc.getString("paymentStatus") ?: PaymentStatus.PENDING.name
-            val paymentStatus = try { PaymentStatus.valueOf(paymentStatusStr) } catch (_: Exception) { PaymentStatus.PENDING }
-
-            val statusStr = doc.getString(FirebaseConstants.FIELD_STATUS) ?: BookingStatus.BOOKED.name
-            val status = try { BookingStatus.valueOf(statusStr) } catch (_: Exception) { BookingStatus.BOOKED }
-
-            // Partner details (populated when Admin assigns partner or Partner accepts)
-            val partnerId = doc.getString(FirebaseConstants.FIELD_PARTNER_ID)
-            val partnerName = doc.getString("partnerName")
-            val partner = if (!partnerId.isNullOrBlank() && !partnerName.isNullOrBlank()) {
-                PartnerInfo(
-                    id = partnerId,
-                    name = partnerName,
-                    rating = (doc.getDouble("partnerRating") ?: 4.9).toFloat(),
-                    jobsCompleted = (doc.getLong("partnerJobs") ?: 150L).toInt(),
-                    maskedPhone = doc.getString("partnerPhone") ?: "+91 80 4719 3200"
-                )
-            } else null
-
-            val startPin = doc.getString("startPin") ?: "4821"
-            val createdAt = doc.getLong(FirebaseConstants.FIELD_CREATED_AT) ?: System.currentTimeMillis()
-            val updatedAt = doc.getLong(FirebaseConstants.FIELD_UPDATED_AT) ?: createdAt
-            val cancellationReason = doc.getString("cancellationReason")
-            val userRating = doc.getDouble("userRating")?.toFloat()
-            val userReview = doc.getString("userReview")
-
-            val basePrice = (doc.getLong("basePrice") ?: servicePrice.toLong()).toInt()
-            val addOnPrice = (doc.getLong("addOnPrice") ?: addOnsTotal.toLong()).toInt()
-            val hubId = doc.getString("hubId") ?: doc.getString(FirebaseConstants.FIELD_HUB_ID)
-            val hubName = doc.getString("hubName") ?: doc.getString(FirebaseConstants.FIELD_HUB_NAME)
-
-            Booking(
-                id = id,
-                customerId = customerId,
-                serviceId = serviceId,
-                serviceTitle = serviceTitle,
-                category = category,
-                variantName = variantName,
-                quantity = quantity,
-                selectedAddOns = selectedAddOns,
-                addOnsTotal = addOnsTotal,
-                servicePrice = servicePrice,
-                totalAmount = totalAmount,
-                basePrice = basePrice,
-                addOnPrice = addOnPrice,
-                bookingDate = bookingDate,
-                slotTime = slotTime,
-                address = address,
-                instructions = instructions,
-                paymentMethod = paymentMethod,
-                paymentStatus = paymentStatus,
-                status = status,
-                partner = partner,
-                hubId = hubId,
-                hubName = hubName,
-                startPin = startPin,
-                createdAt = createdAt,
-                updatedAt = updatedAt,
-                cancellationReason = cancellationReason,
-                userRating = userRating,
-                userReview = userReview
-            )
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to parse booking doc ${doc.id}: ${e.message}", e)
-            null
-        }
-    }
-
-    private fun parseNotificationDocument(doc: DocumentSnapshot): NotificationItem? {
-        return try {
-            NotificationItem(
-                id = doc.getString("notificationId") ?: doc.id,
-                title = doc.getString("title") ?: "Cleankr Update",
-                message = doc.getString("message") ?: "",
-                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
-                type = doc.getString("type") ?: "BOOKING",
-                isRead = doc.getBoolean("isRead") ?: false,
-                bookingId = doc.getString("bookingId")
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
+    val defaultServicesCatalog: List<ServiceItem> = listOf(
+        ServiceItem(
+            id = "srv_bath_intense",
+            title = "Bathroom Intense Clean",
+            categoryId = "cat_bathroom",
+            categoryName = "Bathroom",
+            description = "High-pressure scrub, descaling, sanitary stain removal & disinfection.",
+            basePrice = 450,
+            durationMinutes = 60,
+            rating = 4.8f,
+            reviewCount = 240,
+            isPopular = true,
+            variants = listOf(
+                ServiceVariant("v1", "1 Bathroom", "Single bathroom deep hygiene clean", 450, 60),
+                ServiceVariant("v2", "2 Bathrooms", "Complete hygiene clean for 2 bathrooms", 850, 100),
+                ServiceVariant("v3", "3 Bathrooms", "Full deep clean for 3 bathrooms", 1250, 140)
+            ),
+            addOns = listOf(
+                AddOnItem("a_glass", "Glass Partition Add-on", 200, "Removes cloudy water stains and soap scum from glass partition")
+            ),
+            includedItems = listOf("Tile and grout deep scrubbing", "Hard water stain removal", "Toilet, sink & chrome sanitization"),
+            notIncludedItems = listOf("Ceiling plaster repairs", "Plumbing replacements")
+        ),
+        ServiceItem(
+            id = "srv_bath_movein",
+            title = "Bathroom Move-in Clean",
+            categoryId = "cat_bathroom",
+            categoryName = "Bathroom",
+            description = "Ultra-intense scrubbing for post-tenant handover or vacant flats.",
+            basePrice = 550,
+            durationMinutes = 75,
+            rating = 4.9f,
+            reviewCount = 180,
+            isPopular = false,
+            variants = listOf(
+                ServiceVariant("v1", "1 Bathroom", "Single bathroom move-in scrub", 550, 75),
+                ServiceVariant("v2", "2 Bathrooms", "Two bathrooms move-in scrub", 950, 120),
+                ServiceVariant("v3", "3 Bathrooms", "Three bathrooms move-in scrub", 1350, 160)
+            ),
+            addOns = listOf(
+                AddOnItem("a_glass", "Glass Partition Add-on", 200, "Removes cloudy water stains and soap scum from glass partition")
+            ),
+            includedItems = listOf("Acid-free chemical scrub", "Mirror & chrome shine restoration", "Sanitary floor and wall deep clean"),
+            notIncludedItems = listOf("Painting or tile re-grouting")
+        ),
+        ServiceItem(
+            id = "srv_bath_hardwater",
+            title = "Bathroom Hard Water Removal",
+            categoryId = "cat_bathroom",
+            categoryName = "Bathroom",
+            description = "Specialized treatment for stubborn white salt, calcium & hard water scaling.",
+            basePrice = 700,
+            durationMinutes = 90,
+            rating = 4.9f,
+            reviewCount = 210,
+            isPopular = true,
+            variants = listOf(
+                ServiceVariant("v1", "1 Bathroom", "Complete hard water scale removal for 1 bathroom", 700, 90),
+                ServiceVariant("v2", "2 Bathrooms", "Hard water scale removal for 2 bathrooms", 1100, 140),
+                ServiceVariant("v3", "3 Bathrooms", "Hard water scale removal for 3 bathrooms", 1600, 180)
+            ),
+            addOns = listOf(
+                AddOnItem("a_glass", "Glass Partition Add-on", 200, "Heavy scaling & mineral deposit removal from glass partition")
+            ),
+            includedItems = listOf("Heavy salt & lime scale removal", "Tap, shower & tile descaling", "Sanitary fitting polish"),
+            notIncludedItems = listOf("Physical crack repair")
+        ),
+        ServiceItem(
+            id = "srv_kitchen_clean",
+            title = "Kitchen Cleaning",
+            categoryId = "cat_kitchen",
+            categoryName = "Kitchen",
+            description = "Cabinet exterior, countertop scrub, sink descaling & grease removal.",
+            basePrice = 1400,
+            durationMinutes = 120,
+            rating = 4.8f,
+            reviewCount = 310,
+            isPopular = true,
+            variants = listOf(
+                ServiceVariant("v1", "Kitchen Cleaning", "Complete deep kitchen hygiene clean", 1400, 120)
+            ),
+            addOns = listOf(
+                AddOnItem("a_chimney", "Chimney", 200, "Chimney filter degreasing & exterior wipe"),
+                AddOnItem("a_cabinets", "Cabinets", 250, "Internal & external cabinet deep clean"),
+                AddOnItem("a_trolleys", "Trolleys", 350, "Modular trolley removal, rail wipe & sanitization")
+            ),
+            includedItems = listOf("Countertop & backsplash scrub", "Sink & tap descaling", "Gas stove exterior degreasing", "Floor mopping"),
+            notIncludedItems = listOf("Chimney motor repair", "Appliance internal electrical repairs")
+        ),
+        ServiceItem(
+            id = "srv_full_home",
+            title = "Full Home Deep Cleaning (Flat)",
+            categoryId = "cat_fullhome",
+            categoryName = "Full Home",
+            description = "Top-to-bottom comprehensive flat clean: rooms, kitchen, bathrooms, windows & floors.",
+            basePrice = 3000,
+            durationMinutes = 240,
+            rating = 4.9f,
+            reviewCount = 520,
+            isPopular = true,
+            variants = listOf(
+                ServiceVariant("v1", "1 BHK", "Complete 1 BHK deep flat cleaning", 3000, 180),
+                ServiceVariant("v2", "2 BHK", "Complete 2 BHK deep flat cleaning", 5000, 240),
+                ServiceVariant("v3", "3 BHK", "Complete 3 BHK deep flat cleaning", 7000, 300),
+                ServiceVariant("v4", "4 BHK", "Complete 4 BHK deep flat cleaning", 9200, 360)
+            ),
+            addOns = emptyList(),
+            includedItems = listOf("All room floor machine scrubbing", "Cobweb removal & fan dusting", "Bathroom & kitchen deep clean", "Door & window frame cleaning"),
+            notIncludedItems = listOf("Exterior facade rope work", "Wall painting")
+        ),
+        ServiceItem(
+            id = "srv_balcony_clean",
+            title = "Balcony Cleaning",
+            categoryId = "cat_balcony",
+            categoryName = "Balcony Cleaning",
+            description = "Floor scrubbing, railing wipe, bird droppings removal & drainage wash.",
+            basePrice = 600,
+            durationMinutes = 45,
+            rating = 4.7f,
+            reviewCount = 140,
+            isPopular = false,
+            variants = listOf(
+                ServiceVariant("v1", "Small Balcony", "Standard compact balcony cleaning", 600, 45),
+                ServiceVariant("v2", "Big Balcony", "Large / terrace balcony deep power wash", 850, 75)
+            ),
+            addOns = emptyList(),
+            includedItems = listOf("Floor pressure scrub", "Railing wipedown & polish", "Drainage area wash"),
+            notIncludedItems = listOf("Exterior wall painting", "Bird net installation")
+        ),
+        ServiceItem(
+            id = "srv_other_clean",
+            title = "Other Cleaning",
+            categoryId = "cat_other",
+            categoryName = "Other Cleaning",
+            description = "Fixture and specialized element cleaning: fans, glass windows & glass doors.",
+            basePrice = 60,
+            durationMinutes = 30,
+            rating = 4.8f,
+            reviewCount = 195,
+            isPopular = false,
+            variants = listOf(
+                ServiceVariant("v1", "Ceiling Fan Cleaning", "Blade dusting, stain wipe & degrease", 60, 20),
+                ServiceVariant("v2", "Exhaust Fan Cleaning", "Heavy oil & grease removal from exhaust blades", 65, 25),
+                ServiceVariant("v3", "Glass Window Cleaning", "Streak-free crystal clear glass window clean", 300, 40),
+                ServiceVariant("v4", "Glass Door Cleaning", "Full glass sliding/hinged door restoration", 400, 45)
+            ),
+            addOns = emptyList(),
+            includedItems = listOf("Focused detailed spot cleaning", "Streak-free microfiber finish"),
+            notIncludedItems = listOf("Electrical rewiring", "Glass replacement")
+        )
+    )
 }

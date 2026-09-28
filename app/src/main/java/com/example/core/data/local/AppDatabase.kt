@@ -10,9 +10,10 @@ import androidx.room.RoomDatabase
         BookingEntity::class,
         AddressEntity::class,
         NotificationEntity::class,
-        SupportTicketEntity::class
+        SupportTicketEntity::class,
+        CrossHubAttemptEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,19 +21,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun addressDao(): AddressDao
     abstract fun notificationDao(): NotificationDao
     abstract fun supportTicketDao(): SupportTicketDao
+    abstract fun crossHubAttemptDao(): CrossHubAttemptDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        fun getDatabase(context: Context): AppDatabase {
+        fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "cleankr_customer_database"
+                    "cleankr_customer.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance

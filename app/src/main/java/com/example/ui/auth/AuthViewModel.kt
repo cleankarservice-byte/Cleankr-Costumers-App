@@ -2,171 +2,77 @@ package com.example.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.core.data.firebase.FirebaseBackendService
 import com.example.core.data.session.SessionManager
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-sealed class AuthUiState {
-    data object Idle : AuthUiState()
-    data object Loading : AuthUiState()
-    data class OtpSent(val phone: String, val resendCountdown: Int) : AuthUiState()
-    data object Authenticated : AuthUiState()
-    data class Error(val message: String) : AuthUiState()
-}
+data class AuthUiState(
+    val phoneNumber: String = "",
+    val otp: String = "",
+    val isOtpSent: Boolean = false,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
+    val userName: String = ""
+)
 
-class AuthViewModel(
-    private val sessionManager: SessionManager,
-    private val firebaseBackend: FirebaseBackendService? = null
-) : ViewModel() {
-
-    private val _uiState = MutableStateFlow<AuthUiState>(AuthUiState.Idle)
+class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
+    private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
-    private val _resendTimer = MutableStateFlow(30)
-    val resendTimer: StateFlow<Int> = _resendTimer.asStateFlow()
+    fun updatePhone(phone: String) {
+        if (phone.length <= 10) {
+            _uiState.value = _uiState.value.copy(phoneNumber = phone, errorMessage = null)
+        }
+    }
 
-    private var timerJob: Job? = null
+    fun updateOtp(otp: String) {
+        if (otp.length <= 6) {
+            _uiState.value = _uiState.value.copy(otp = otp, errorMessage = null)
+        }
+    }
 
-    val isLoggedIn = sessionManager.isLoggedIn
-    val currentUser = sessionManager.currentUser
+    fun updateName(name: String) {
+        _uiState.value = _uiState.value.copy(userName = name)
+    }
 
-    fun sendOtp(phoneNumber: String, onSuccess: () -> Unit) {
-        val cleanPhone = phoneNumber.trim().replace(" ", "").replace("-", "")
-        if (cleanPhone.length < 10) {
-            _uiState.value = AuthUiState.Error("Please enter a valid 10-digit mobile number.")
+    fun sendOtp() {
+        val phone = _uiState.value.phoneNumber
+        if (phone.length != 10) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter a valid 10-digit mobile number")
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            // Simulate secure Firebase Phone Auth handshake
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            delay(1000)
+            _uiState.value = _uiState.value.copy(isLoading = false, isOtpSent = true, otp = "123456")
+        }
+    }
+
+    fun verifyOtp(onSuccess: () -> Unit) {
+        val otp = _uiState.value.otp
+        if (otp.length < 4) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter the OTP")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             delay(800)
-            startResendTimer()
-            _uiState.value = AuthUiState.OtpSent(cleanPhone, 30)
+            val phone = _uiState.value.phoneNumber
+            val uid = "user_${phone.takeLast(6)}"
+            val name = _uiState.value.userName.ifBlank { "Customer (${phone.takeLast(4)})" }
+            sessionManager.saveLoginSession(uid = uid, phone = "+91 $phone", name = name)
+            _uiState.value = _uiState.value.copy(isLoading = false)
             onSuccess()
         }
     }
 
-    private fun startResendTimer() {
-        timerJob?.cancel()
-        _resendTimer.value = 30
-        timerJob = viewModelScope.launch {
-            while (_resendTimer.value > 0) {
-                delay(1000)
-                _resendTimer.value -= 1
-            }
-        }
-    }
-
-    fun resendOtp(phone: String) {
-        if (_resendTimer.value > 0) return
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            delay(600)
-            startResendTimer()
-            _uiState.value = AuthUiState.OtpSent(phone, 30)
-        }
-    }
-
-    fun verifyOtp(phone: String, enteredOtp: String, onSuccess: (isNewUser: Boolean) -> Unit) {
-        if (enteredOtp.length != 6 && enteredOtp.length != 4) {
-            _uiState.value = AuthUiState.Error("Please enter the complete verification code.")
-            return
-        }
-
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            delay(900)
-
-            // For testing/mocking without live SMS gateway cost: any 4 or 6 digit code except all zeros
-            if (enteredOtp == "0000" || enteredOtp == "000000") {
-                _uiState.value = AuthUiState.Error("Invalid OTP entered. Please check the SMS and try again.")
-                return@launch
-            }
-
-            // Save authenticated session
-            val finalPhone = if (phone.startsWith("+91")) phone else "+91 $phone"
-            sessionManager.saveLoginSession(phone = finalPhone)
-
-            val user = sessionManager.currentUser.value
-            val customerId = user?.id ?: "cust_${phone.takeLast(6)}"
-
-            // Synchronize with shared Cleankr ecosystem (strictly Customer role)
-            firebaseBackend?.syncCustomerProfile(
-                customerId = customerId,
-                name = user?.name ?: "Cleankr Customer",
-                phone = finalPhone,
-                email = user?.email ?: "customer@cleankr.com"
-            )
-
-            // Proactively sync FCM device push notification token
-            firebaseBackend?.syncCurrentFcmToken(customerId)
-
-            _uiState.value = AuthUiState.Authenticated
-            val needsPinSetup = user?.hasPinSet != true
-            onSuccess(needsPinSetup)
-        }
-    }
-
-    fun setQuickPin(pin: String, onDone: () -> Unit) {
-        if (pin.length != 4) {
-            _uiState.value = AuthUiState.Error("PIN must be exactly 4 digits.")
-            return
-        }
-        sessionManager.setQuickPin(pin)
-        _uiState.value = AuthUiState.Authenticated
-        onDone()
-    }
-
-    fun verifyQuickPin(pin: String, onSuccess: () -> Unit) {
-        if (pin.length != 4) {
-            _uiState.value = AuthUiState.Error("Please enter 4 digits.")
-            return
-        }
-        val isValid = sessionManager.verifyPin(pin)
-        if (isValid) {
-            _uiState.value = AuthUiState.Authenticated
-            onSuccess()
-        } else {
-            _uiState.value = AuthUiState.Error("Incorrect PIN. Please re-enter or login via OTP.")
-        }
-    }
-
-    fun logout(onLoggedOut: () -> Unit) {
-        val customerId = sessionManager.currentUser.value?.id
-        viewModelScope.launch {
-            if (!customerId.isNullOrBlank()) {
-                firebaseBackend?.removeFcmToken(customerId)
-            }
-            sessionManager.logout()
-            _uiState.value = AuthUiState.Idle
-            onLoggedOut()
-        }
-    }
-
-    fun deleteAccount(reason: String, onDeleted: () -> Unit) {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
-            val customerId = sessionManager.currentUser.value?.id
-            if (!customerId.isNullOrBlank()) {
-                firebaseBackend?.removeFcmToken(customerId)
-                firebaseBackend?.deleteCustomerAccountInBackend(customerId, reason)
-            }
-            delay(500)
-            sessionManager.deleteAccount()
-            _uiState.value = AuthUiState.Idle
-            onDeleted()
-        }
-    }
-
-    fun clearError() {
-        if (_uiState.value is AuthUiState.Error) {
-            _uiState.value = AuthUiState.Idle
-        }
+    fun handleGoogleAuthSuccess(uid: String, name: String, email: String, onSuccess: () -> Unit) {
+        sessionManager.saveLoginSession(uid = uid, phone = "+91 98765 43210", name = name, email = email)
+        onSuccess()
     }
 }

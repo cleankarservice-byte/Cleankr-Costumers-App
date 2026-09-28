@@ -10,10 +10,11 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+build/
+app/build/
 .build-outputs/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 .env
-

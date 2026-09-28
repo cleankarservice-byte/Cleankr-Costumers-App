@@ -2,110 +2,79 @@ package com.example.core.data.session
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.example.core.model.CustomerUser
+import com.example.core.model.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.security.MessageDigest
 
 class SessionManager(context: Context) {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("cleankr_customer_session", Context.MODE_PRIVATE)
+        context.getSharedPreferences("cleankr_customer_prefs", Context.MODE_PRIVATE)
 
-    private val _currentUser = MutableStateFlow<CustomerUser?>(loadUserFromPrefs())
-    val currentUser: StateFlow<CustomerUser?> = _currentUser.asStateFlow()
+    private val _userProfile = MutableStateFlow(loadProfile())
+    val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
-    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean(KEY_IS_LOGGED_IN, false))
+    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    private fun loadUserFromPrefs(): CustomerUser? {
-        val isLoggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
-        if (!isLoggedIn) return null
+    private val _appLanguage = MutableStateFlow(prefs.getString("app_language", "en") ?: "en")
+    val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
 
-        val id = prefs.getString(KEY_USER_ID, "cust_001") ?: "cust_001"
-        val name = prefs.getString(KEY_USER_NAME, "Customer") ?: "Customer"
-        val phone = prefs.getString(KEY_USER_PHONE, "+91 98765 43210") ?: "+91 98765 43210"
-        val email = prefs.getString(KEY_USER_EMAIL, "customer@cleankr.com") ?: "customer@cleankr.com"
-        val hasPin = prefs.getBoolean(KEY_HAS_PIN, false)
-        val pinHash = prefs.getString(KEY_PIN_HASH, "") ?: ""
-
-        return CustomerUser(
-            id = id,
-            name = name,
+    private fun loadProfile(): UserProfile {
+        val phone = prefs.getString("user_phone", "") ?: ""
+        val last4 = if (phone.length >= 4) phone.takeLast(4) else "5600"
+        return UserProfile(
+            uid = prefs.getString("user_uid", "cust_default") ?: "cust_default",
+            name = prefs.getString("user_name", "Valued Customer") ?: "Valued Customer",
             phone = phone,
-            email = email,
-            isVerified = true,
-            hasPinSet = hasPin,
-            pinHash = pinHash
+            email = prefs.getString("user_email", "") ?: "",
+            referralCode = prefs.getString("referral_code", "CLEAN-$last4") ?: "CLEAN-$last4",
+            referralEarnings = prefs.getInt("referral_earnings", 200),
+            language = prefs.getString("app_language", "en") ?: "en"
         )
     }
 
-    fun saveLoginSession(phone: String, name: String = "Rajesh Sharma", email: String = "rajesh.cleankr@gmail.com") {
+    fun saveLoginSession(uid: String, phone: String, name: String, email: String = "") {
+        val last4 = if (phone.length >= 4) phone.takeLast(4) else "5600"
+        val referralCode = "CLEAN-$last4"
         prefs.edit()
-            .putBoolean(KEY_IS_LOGGED_IN, true)
-            .putString(KEY_USER_ID, "cust_" + phone.takeLast(6))
-            .putString(KEY_USER_NAME, name)
-            .putString(KEY_USER_PHONE, phone)
-            .putString(KEY_USER_EMAIL, email)
+            .putBoolean("is_logged_in", true)
+            .putString("user_uid", uid)
+            .putString("user_phone", phone)
+            .putString("user_name", name.ifBlank { "Cleankr User" })
+            .putString("user_email", email)
+            .putString("referral_code", referralCode)
             .apply()
 
-        _currentUser.value = loadUserFromPrefs()
         _isLoggedIn.value = true
-    }
-
-    fun setQuickPin(pin: String): Boolean {
-        if (pin.length != 4) return false
-        val hash = hashPin(pin)
-        prefs.edit()
-            .putBoolean(KEY_HAS_PIN, true)
-            .putString(KEY_PIN_HASH, hash)
-            .apply()
-
-        _currentUser.value = loadUserFromPrefs()
-        return true
-    }
-
-    fun verifyPin(pin: String): Boolean {
-        val storedHash = prefs.getString(KEY_PIN_HASH, "") ?: return false
-        return hashPin(pin) == storedHash
+        _userProfile.value = UserProfile(
+            uid = uid,
+            name = name.ifBlank { "Cleankr User" },
+            phone = phone,
+            email = email,
+            referralCode = referralCode,
+            referralEarnings = prefs.getInt("referral_earnings", 200),
+            language = _appLanguage.value
+        )
     }
 
     fun updateProfile(name: String, email: String) {
         prefs.edit()
-            .putString(KEY_USER_NAME, name)
-            .putString(KEY_USER_EMAIL, email)
+            .putString("user_name", name)
+            .putString("user_email", email)
             .apply()
-
-        _currentUser.value = loadUserFromPrefs()
+        _userProfile.value = _userProfile.value.copy(name = name, email = email)
     }
 
-    fun logout() {
-        prefs.edit()
-            .putBoolean(KEY_IS_LOGGED_IN, false)
-            .apply()
-        _currentUser.value = null
-        _isLoggedIn.value = false
+    fun setLanguage(lang: String) {
+        prefs.edit().putString("app_language", lang).apply()
+        _appLanguage.value = lang
+        _userProfile.value = _userProfile.value.copy(language = lang)
     }
 
-    fun deleteAccount() {
+    fun clearSession() {
         prefs.edit().clear().apply()
-        _currentUser.value = null
         _isLoggedIn.value = false
-    }
-
-    private fun hashPin(pin: String): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        val bytes = md.digest("cleankr_salt_$pin".toByteArray())
-        return bytes.joinToString("") { "%02x".format(it) }
-    }
-
-    companion object {
-        private const val KEY_IS_LOGGED_IN = "is_logged_in"
-        private const val KEY_USER_ID = "user_id"
-        private const val KEY_USER_NAME = "user_name"
-        private const val KEY_USER_PHONE = "user_phone"
-        private const val KEY_USER_EMAIL = "user_email"
-        private const val KEY_HAS_PIN = "has_pin"
-        private const val KEY_PIN_HASH = "pin_hash"
+        _userProfile.value = loadProfile()
     }
 }

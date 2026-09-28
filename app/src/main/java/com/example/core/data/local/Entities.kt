@@ -2,36 +2,34 @@ package com.example.core.data.local
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.core.model.AddOnItem
 import com.example.core.model.Address
 import com.example.core.model.Booking
-import com.example.core.model.BookingStatus
+import com.example.core.model.CrossHubAttempt
 import com.example.core.model.NotificationItem
-import com.example.core.model.PartnerInfo
-import com.example.core.model.PaymentMethod
-import com.example.core.model.PaymentStatus
-import com.example.core.model.ServiceCategory
 import com.example.core.model.SupportTicket
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @Entity(tableName = "bookings")
 data class BookingEntity(
     @PrimaryKey val id: String,
-    val customerId: String = "cust_001",
+    val customerId: String,
     val serviceId: String,
     val serviceTitle: String,
     val categoryName: String,
     val variantName: String,
     val quantity: Int,
-    val selectedAddOnsJson: String, // Comma separated
+    val selectedAddOnsJson: String,
     val addOnsTotal: Int,
     val servicePrice: Int,
     val totalAmount: Int,
-    val basePrice: Int = servicePrice,
-    val addOnPrice: Int = addOnsTotal,
-    val hubId: String? = null,
-    val hubName: String? = null,
+    val basePrice: Int,
+    val addOnPrice: Int,
+    val hubId: String?,
+    val hubName: String?,
     val bookingDate: String,
     val slotTime: String,
-    // Flat Address fields
     val addressId: String,
     val addressLabel: String,
     val addressFlatNo: String,
@@ -51,64 +49,56 @@ data class BookingEntity(
     val partnerMaskedPhone: String?,
     val startPin: String,
     val createdAt: Long,
-    val updatedAt: Long = createdAt,
+    val updatedAt: Long,
     val cancellationReason: String?,
     val userRating: Float?,
     val userReview: String?
 ) {
     fun toDomain(): Booking {
-        val address = Address(
-            id = addressId,
-            label = addressLabel,
-            flatNo = addressFlatNo,
-            street = addressStreet,
-            landmark = addressLandmark,
-            city = addressCity,
-            pincode = addressPincode,
-            contactPhone = addressPhone
-        )
-        val partner = if (partnerId != null && partnerName != null) {
-            PartnerInfo(
-                id = partnerId,
-                name = partnerName,
-                rating = partnerRating ?: 4.9f,
-                jobsCompleted = partnerJobs ?: 120,
-                maskedPhone = partnerMaskedPhone ?: "+91 80000 00000"
-            )
-        } else null
-
-        val cat = try {
-            ServiceCategory.valueOf(categoryName)
+        val addOns = try {
+            if (selectedAddOnsJson.isNotBlank()) {
+                Json.decodeFromString<List<AddOnItem>>(selectedAddOnsJson)
+            } else emptyList()
         } catch (_: Exception) {
-            ServiceCategory.BATHROOM
+            emptyList()
         }
-
-        val parsedAddOns = if (selectedAddOnsJson.isBlank()) emptyList() else selectedAddOnsJson.split("|||")
-
         return Booking(
             id = id,
             customerId = customerId,
             serviceId = serviceId,
             serviceTitle = serviceTitle,
-            category = cat,
+            categoryName = categoryName,
             variantName = variantName,
             quantity = quantity,
-            selectedAddOns = parsedAddOns,
+            selectedAddOns = addOns,
             addOnsTotal = addOnsTotal,
             servicePrice = servicePrice,
             totalAmount = totalAmount,
             basePrice = basePrice,
             addOnPrice = addOnPrice,
-            bookingDate = bookingDate,
-            slotTime = slotTime,
-            address = address,
-            instructions = instructions,
-            paymentMethod = try { PaymentMethod.valueOf(paymentMethod) } catch (_: Exception) { PaymentMethod.ONLINE },
-            paymentStatus = try { PaymentStatus.valueOf(paymentStatus) } catch (_: Exception) { PaymentStatus.PENDING },
-            status = try { BookingStatus.valueOf(status) } catch (_: Exception) { BookingStatus.BOOKED },
-            partner = partner,
             hubId = hubId,
             hubName = hubName,
+            bookingDate = bookingDate,
+            slotTime = slotTime,
+            address = Address(
+                id = addressId,
+                label = addressLabel,
+                flatNo = addressFlatNo,
+                street = addressStreet,
+                landmark = addressLandmark,
+                city = addressCity,
+                pincode = addressPincode,
+                contactPhone = addressPhone
+            ),
+            instructions = instructions,
+            paymentMethod = paymentMethod,
+            paymentStatus = paymentStatus,
+            status = status,
+            partnerId = partnerId,
+            partnerName = partnerName,
+            partnerRating = partnerRating,
+            partnerJobs = partnerJobs,
+            partnerMaskedPhone = partnerMaskedPhone,
             startPin = startPin,
             createdAt = createdAt,
             updatedAt = updatedAt,
@@ -119,48 +109,53 @@ data class BookingEntity(
     }
 
     companion object {
-        fun fromDomain(b: Booking): BookingEntity {
+        fun fromDomain(domain: Booking): BookingEntity {
+            val jsonAddOns = try {
+                Json.encodeToString(domain.selectedAddOns)
+            } catch (_: Exception) {
+                "[]"
+            }
             return BookingEntity(
-                id = b.id,
-                customerId = b.customerId,
-                serviceId = b.serviceId,
-                serviceTitle = b.serviceTitle,
-                categoryName = b.category.name,
-                variantName = b.variantName,
-                quantity = b.quantity,
-                selectedAddOnsJson = b.selectedAddOns.joinToString("|||"),
-                addOnsTotal = b.addOnsTotal,
-                servicePrice = b.servicePrice,
-                totalAmount = b.totalAmount,
-                basePrice = b.basePrice,
-                addOnPrice = b.addOnPrice,
-                hubId = b.hubId,
-                hubName = b.hubName,
-                bookingDate = b.bookingDate,
-                slotTime = b.slotTime,
-                addressId = b.address.id,
-                addressLabel = b.address.label,
-                addressFlatNo = b.address.flatNo,
-                addressStreet = b.address.street,
-                addressLandmark = b.address.landmark,
-                addressCity = b.address.city,
-                addressPincode = b.address.pincode,
-                addressPhone = b.address.contactPhone,
-                instructions = b.instructions,
-                paymentMethod = b.paymentMethod.name,
-                paymentStatus = b.paymentStatus.name,
-                status = b.status.name,
-                partnerId = b.partner?.id,
-                partnerName = b.partner?.name,
-                partnerRating = b.partner?.rating,
-                partnerJobs = b.partner?.jobsCompleted,
-                partnerMaskedPhone = b.partner?.maskedPhone,
-                startPin = b.startPin,
-                createdAt = b.createdAt,
-                updatedAt = b.updatedAt,
-                cancellationReason = b.cancellationReason,
-                userRating = b.userRating,
-                userReview = b.userReview
+                id = domain.id,
+                customerId = domain.customerId,
+                serviceId = domain.serviceId,
+                serviceTitle = domain.serviceTitle,
+                categoryName = domain.categoryName,
+                variantName = domain.variantName,
+                quantity = domain.quantity,
+                selectedAddOnsJson = jsonAddOns,
+                addOnsTotal = domain.addOnsTotal,
+                servicePrice = domain.servicePrice,
+                totalAmount = domain.totalAmount,
+                basePrice = domain.basePrice,
+                addOnPrice = domain.addOnPrice,
+                hubId = domain.hubId,
+                hubName = domain.hubName,
+                bookingDate = domain.bookingDate,
+                slotTime = domain.slotTime,
+                addressId = domain.address.id,
+                addressLabel = domain.address.label,
+                addressFlatNo = domain.address.flatNo,
+                addressStreet = domain.address.street,
+                addressLandmark = domain.address.landmark,
+                addressCity = domain.address.city,
+                addressPincode = domain.address.pincode,
+                addressPhone = domain.address.contactPhone,
+                instructions = domain.instructions,
+                paymentMethod = domain.paymentMethod,
+                paymentStatus = domain.paymentStatus,
+                status = domain.status,
+                partnerId = domain.partnerId,
+                partnerName = domain.partnerName,
+                partnerRating = domain.partnerRating,
+                partnerJobs = domain.partnerJobs,
+                partnerMaskedPhone = domain.partnerMaskedPhone,
+                startPin = domain.startPin,
+                createdAt = domain.createdAt,
+                updatedAt = domain.updatedAt,
+                cancellationReason = domain.cancellationReason,
+                userRating = domain.userRating,
+                userReview = domain.userReview
             )
         }
     }
@@ -193,17 +188,17 @@ data class AddressEntity(
     )
 
     companion object {
-        fun fromDomain(a: Address): AddressEntity = AddressEntity(
-            id = a.id,
-            label = a.label,
-            flatNo = a.flatNo,
-            street = a.street,
-            landmark = a.landmark,
-            city = a.city,
-            pincode = a.pincode,
-            contactPhone = a.contactPhone,
-            instructions = a.instructions,
-            isDefault = a.isDefault
+        fun fromDomain(domain: Address): AddressEntity = AddressEntity(
+            id = domain.id,
+            label = domain.label,
+            flatNo = domain.flatNo,
+            street = domain.street,
+            landmark = domain.landmark,
+            city = domain.city,
+            pincode = domain.pincode,
+            contactPhone = domain.contactPhone,
+            instructions = domain.instructions,
+            isDefault = domain.isDefault
         )
     }
 }
@@ -229,14 +224,14 @@ data class NotificationEntity(
     )
 
     companion object {
-        fun fromDomain(n: NotificationItem): NotificationEntity = NotificationEntity(
-            id = n.id,
-            title = n.title,
-            message = n.message,
-            timestamp = n.timestamp,
-            type = n.type,
-            isRead = n.isRead,
-            bookingId = n.bookingId
+        fun fromDomain(domain: NotificationItem): NotificationEntity = NotificationEntity(
+            id = domain.id,
+            title = domain.title,
+            message = domain.message,
+            timestamp = domain.timestamp,
+            type = domain.type,
+            isRead = domain.isRead,
+            bookingId = domain.bookingId
         )
     }
 }
@@ -262,14 +257,90 @@ data class SupportTicketEntity(
     )
 
     companion object {
-        fun fromDomain(t: SupportTicket): SupportTicketEntity = SupportTicketEntity(
-            id = t.id,
-            bookingId = t.bookingId,
-            category = t.category,
-            subject = t.subject,
-            description = t.description,
-            status = t.status,
-            createdAt = t.createdAt
+        fun fromDomain(domain: SupportTicket): SupportTicketEntity = SupportTicketEntity(
+            id = domain.id,
+            bookingId = domain.bookingId,
+            category = domain.category,
+            subject = domain.subject,
+            description = domain.description,
+            status = domain.status,
+            createdAt = domain.createdAt
         )
     }
 }
+
+@Entity(tableName = "cross_hub_attempts")
+data class CrossHubAttemptEntity(
+    @PrimaryKey val id: String,
+    val customerId: String,
+    val customerName: String,
+    val customerPhone: String,
+    val serviceTitle: String,
+    val variantName: String,
+    val estimatedAmount: Int,
+    val attemptedAddressText: String,
+    val attemptedPincode: String,
+    val attemptedCity: String,
+    val customerSelectedHubId: String,
+    val customerSelectedHubName: String,
+    val actualDetectedHubId: String?,
+    val actualDetectedHubName: String?,
+    val attemptType: String,
+    val reason: String,
+    val status: String,
+    val assignedHubId: String?,
+    val assignedHubName: String?,
+    val adminNotes: String?,
+    val timestamp: Long
+) {
+    fun toDomain(): CrossHubAttempt = CrossHubAttempt(
+        id = id,
+        customerId = customerId,
+        customerName = customerName,
+        customerPhone = customerPhone,
+        serviceTitle = serviceTitle,
+        variantName = variantName,
+        estimatedAmount = estimatedAmount,
+        attemptedAddressText = attemptedAddressText,
+        attemptedPincode = attemptedPincode,
+        attemptedCity = attemptedCity,
+        customerSelectedHubId = customerSelectedHubId,
+        customerSelectedHubName = customerSelectedHubName,
+        actualDetectedHubId = actualDetectedHubId,
+        actualDetectedHubName = actualDetectedHubName,
+        attemptType = attemptType,
+        reason = reason,
+        status = status,
+        assignedHubId = assignedHubId,
+        assignedHubName = assignedHubName,
+        adminNotes = adminNotes,
+        timestamp = timestamp
+    )
+
+    companion object {
+        fun fromDomain(domain: CrossHubAttempt): CrossHubAttemptEntity = CrossHubAttemptEntity(
+            id = domain.id,
+            customerId = domain.customerId,
+            customerName = domain.customerName,
+            customerPhone = domain.customerPhone,
+            serviceTitle = domain.serviceTitle,
+            variantName = domain.variantName,
+            estimatedAmount = domain.estimatedAmount,
+            attemptedAddressText = domain.attemptedAddressText,
+            attemptedPincode = domain.attemptedPincode,
+            attemptedCity = domain.attemptedCity,
+            customerSelectedHubId = domain.customerSelectedHubId,
+            customerSelectedHubName = domain.customerSelectedHubName,
+            actualDetectedHubId = domain.actualDetectedHubId,
+            actualDetectedHubName = domain.actualDetectedHubName,
+            attemptType = domain.attemptType,
+            reason = domain.reason,
+            status = domain.status,
+            assignedHubId = domain.assignedHubId,
+            assignedHubName = domain.assignedHubName,
+            adminNotes = domain.adminNotes,
+            timestamp = domain.timestamp
+        )
+    }
+}
+
