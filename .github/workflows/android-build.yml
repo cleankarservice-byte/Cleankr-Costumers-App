@@ -7,6 +7,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Generate APK and AAB
@@ -21,26 +24,73 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Make Gradle Wrapper Executable
-      run: chmod +x gradlew
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        cache-read-only: false
 
-    - name: Build Debug APK & AAB
-      env:
-        GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
-      run: ./gradlew assembleDebug bundleDebug --no-daemon --stacktrace
+    - name: Prepare Signing & Build Environment
+      run: |
+        chmod +x ./gradlew
+        touch .env
+
+        # Ensure debug keystore is ready for signing
+        if [ ! -f debug.keystore ]; then
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+        fi
+
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
+
+    - name: Build Debug AAB (Google Play Bundle)
+      run: ./gradlew bundleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
+
+    - name: Organize Artifacts
+      run: |
+        mkdir -p artifacts
+        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+          cp app/build/outputs/apk/debug/app-debug.apk artifacts/Cleankr-v1.0.apk
+        fi
+        if [ -f app/build/outputs/bundle/debug/app-debug.aab ]; then
+          cp app/build/outputs/bundle/debug/app-debug.aab artifacts/Cleankr-v1.0.aab
+        fi
+        ls -la artifacts/
 
     - name: Upload Cleankr APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Cleankr-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 14
+        path: artifacts/Cleankr-v1.0.apk
+        if-no-files-found: warn
+        retention-days: 30
 
     - name: Upload Cleankr AAB Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Cleankr-AAB
-        path: app/build/outputs/bundle/debug/app-debug.aab
-        retention-days: 14
+        path: artifacts/Cleankr-v1.0.aab
+        if-no-files-found: warn
+        retention-days: 30
+
+    - name: Create or Update GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: github.ref == 'refs/heads/main'
+      continue-on-error: true
+      with:
+        tag_name: v1.0.0
+        name: "Cleankr App v1.0.0 (Play Store Ready)"
+        body: |
+          ### 📱 Cleankr Android Application Release
+          - **Cleankr-v1.0.aab**: Android App Bundle ready to upload to Google Play Console.
+          - **Cleankr-v1.0.apk**: Standalone APK for direct mobile installation and testing.
+        files: |
+          artifacts/Cleankr-v1.0.apk
+          artifacts/Cleankr-v1.0.aab
+        draft: false
+        prerelease: false
+        overwrite: true

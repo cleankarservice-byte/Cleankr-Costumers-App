@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    var showLegalDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -212,7 +214,6 @@ fun LoginScreen(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                val context = LocalContext.current
                 Row(
                     modifier = Modifier.padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -228,10 +229,7 @@ fun LoginScreen(
                         fontWeight = FontWeight.Bold,
                         color = CleankrTeal,
                         modifier = Modifier.clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CleankrLegalConfig.TERMS_WEB_URL))
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
+                            showLegalDialog = Pair("Terms & Conditions", CleankrLegalConfig.TERMS_OF_SERVICE)
                         }
                     )
                     Text(
@@ -245,10 +243,7 @@ fun LoginScreen(
                         fontWeight = FontWeight.Bold,
                         color = CleankrTeal,
                         modifier = Modifier.clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CleankrLegalConfig.PRIVACY_POLICY_WEB_URL))
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
+                            showLegalDialog = Pair("Privacy Policy", CleankrLegalConfig.PRIVACY_POLICY)
                         }
                     )
                 }
@@ -273,6 +268,45 @@ fun LoginScreen(
                     Text("Doorstep PIN Check", style = MaterialTheme.typography.labelSmall, color = CleankrSlate)
                 }
             }
+        }
+
+        showLegalDialog?.let { (title, content) ->
+            AlertDialog(
+                onDismissRequest = { showLegalDialog = null },
+                title = {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = CleankrNavy
+                    )
+                },
+                text = {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                    ) {
+                        item {
+                            Text(
+                                text = content.trim(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CleankrNavy,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showLegalDialog = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Close")
+                    }
+                }
+            )
         }
     }
 }

@@ -18,3 +18,4 @@ app/build/
 .cxx
 local.properties
 .env
+/public/downloads/
