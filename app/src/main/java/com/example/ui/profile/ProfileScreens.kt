@@ -1,5 +1,7 @@
 package com.example.ui.profile
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -282,6 +284,7 @@ fun LegalDocumentScreen(
     title: String,
     content: String
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = CleankrBackground
@@ -301,6 +304,84 @@ fun LegalDocumentScreen(
                         Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = CleankrNavy)
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(content.trim(), style = MaterialTheme.typography.bodyMedium, color = CleankrNavy, lineHeight = 22.sp)
+
+                        if (title.contains("Terms", ignoreCase = true)) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider(color = CleankrBorder)
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                "Official Terms Agreement",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = CleankrNavy
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CleankrLegalConfig.TERMS_WEB_URL))
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Open Web Terms of Service")
+                            }
+                        }
+
+                        if (title.contains("Privacy", ignoreCase = true)) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider(color = CleankrBorder)
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                "Public URL & Compliance",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = CleankrNavy
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CleankrLegalConfig.PRIVACY_POLICY_WEB_URL))
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CleankrTeal),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Open Web Privacy Policy (Play Store Link)")
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_SENDTO).apply {
+                                            data = Uri.parse("mailto:${CleankrLegalConfig.SUPPORT_EMAIL}")
+                                            putExtra(Intent.EXTRA_SUBJECT, "Cleankr Account Deletion Request")
+                                            putExtra(Intent.EXTRA_TEXT, "Hello Cleankr Support,\n\nI would like to request the permanent deletion of my Cleankr account and all associated personal data.\n\nMy registered phone number is: ")
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = CleankrError, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Request Account & Data Deletion", color = CleankrError)
+                            }
+                        }
                     }
                 }
             }

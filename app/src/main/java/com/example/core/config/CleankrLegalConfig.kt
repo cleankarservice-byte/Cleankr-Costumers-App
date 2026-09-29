@@ -5,6 +5,8 @@ object CleankrLegalConfig {
     const val SUPPORT_EMAIL = "cleankarservice@gmail.com"
     const val SUPPORT_PHONE = "+91 80000 12345"
     const val SUPPORT_WHATSAPP = "+918000012345"
+    const val PRIVACY_POLICY_WEB_URL = "https://ais-pre-lfg7z5pjhexdtvlvndsgcp-302048635733.asia-southeast1.run.app/privacy-policy.html"
+    const val TERMS_WEB_URL = "https://ais-pre-lfg7z5pjhexdtvlvndsgcp-302048635733.asia-southeast1.run.app/terms.html"
 
     const val TERMS_OF_SERVICE = """
 Cleankr Customer Terms & Conditions
@@ -45,15 +47,16 @@ Email: cleankarservice@gmail.com | Phone: +91 80000 12345
 
     const val PRIVACY_POLICY = """
 Cleankr Privacy Policy
-Last updated: September 2026
+Effective & Last updated: September 2026
 
-Cleankr ("we", "our", or "us") is dedicated to safeguarding customer privacy and securing personal information.
+Cleankr ("we", "our", or "us") is dedicated to safeguarding customer privacy and securing personal information for all users of the Cleankr mobile application.
 
 1. Information We Collect
 - Contact Details: Customer full name, phone number, and optional email address.
-- Service Addresses: Flat number, street, landmark, city (Pune), and postal pincode for cleaning service delivery.
-- Device & Location Data: Approximate or precise GPS location accessed only when you choose to auto-detect your delivery address.
-- Booking History: Records of services requested, timestamps, selected add-ons, and ratings/reviews.
+- Service Addresses: House/flat number, apartment name, street, landmark, city (Pune), and postal pincode for cleaning service delivery.
+- Precise & Approximate Location: Accessed only with your foreground consent when using "Detect Location" to find your cleaning address. Cleankr does NOT track location in the background.
+- Booking History: Records of services requested, timestamps, selected add-ons, doorstep 4-digit PIN, and ratings/reviews.
+- Device & Notifications: Firebase Cloud Messaging (FCM) tokens to deliver transactional status updates, partner arrival notices, and security PIN verification.
 
 2. Purpose and Usage of Data
 - To allocate and dispatch verified cleaning professionals from the nearest Pune hub.
@@ -61,16 +64,22 @@ Cleankr ("we", "our", or "us") is dedicated to safeguarding customer privacy and
 - To generate authentic billing receipts and customer care records.
 
 3. Zero Third-Party Advertising / Data Sharing
-Cleankr does NOT sell, rent, trade, or share your phone numbers or personal records with third-party advertisers or telemarketers.
+Cleankr does NOT sell, rent, trade, or share your phone numbers or personal records with third-party advertisers or telemarketers. Information is only shared with the assigned cleaning partner to perform the booked service.
 
 4. Data Security & Storage
 All communication between the mobile app and our Firebase backend (Project: cleankr-724ce) is encrypted over TLS/HTTPS. Sensitive verification PINs and authentication states are protected with strict Firestore security rules.
 
-5. User Rights & Account Control
+5. Data Retention & Account Deletion Policy
+In compliance with Google Play Store policies, any user can request permanent deletion of their account and all associated personal data at any time:
+- Email cleankarservice@gmail.com with subject "Delete My Account" stating your registered phone number.
+- Or request deletion via Help & Support in the app.
+- All associated records will be permanently removed within 48 hours.
+
+6. User Rights & Account Control
 You maintain the right to view, update, or remove your saved addresses and profile details at any time from the Profile tab in the application.
 
-6. Contact Data Protection Officer
-For any privacy concerns, email cleankarservice@gmail.com.
+7. Contact Data Protection Officer
+For any privacy concerns, email cleankarservice@gmail.com or call +91 80000 12345.
 """
 
     const val CANCELLATION_POLICY = """
@@ -87,4 +96,3 @@ Jobs can only be started when you verify the 4-digit PIN at the doorstep. If a p
 If our cleaning does not meet your expectations, notify our support team within 24 hours for a complimentary inspection and touch-up visit.
 """
 }
-
