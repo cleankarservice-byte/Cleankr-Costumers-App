@@ -44,6 +44,34 @@ jobs:
           fi
         fi
 
+        # Ensure google-services.json is present
+        if [ ! -f app/google-services.json ]; then
+          cat << 'EOF' > app/google-services.json
+        {
+          "project_info": {
+            "project_number": "19721903127",
+            "project_id": "cleankr-724ce",
+            "storage_bucket": "cleankr-724ce.firebasestorage.app"
+          },
+          "client": [
+            {
+              "client_info": {
+                "mobilesdk_app_id": "1:19721903127:android:2a4149437565db06701052",
+                "android_client_info": {
+                  "package_name": "com.example"
+                }
+              },
+              "api_key": [
+                {
+                  "current_key": "dummy"
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+        fi
+
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
 
