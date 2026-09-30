@@ -27,7 +27,23 @@ android {
     }
 
     signingConfigs {
-        create("appSigning") {
+        create("release") {
+            val releaseKeystore = file("${rootDir}/release.keystore")
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            val storeFileTarget = if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
+                file(keystorePath)
+            } else if (releaseKeystore.exists()) {
+                releaseKeystore
+            } else {
+                file("${rootDir}/debug.keystore")
+            }
+
+            storeFile = storeFileTarget
+            storePassword = System.getenv("STORE_PASSWORD") ?: "cleankr2026"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "cleankr_release"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "cleankr2026"
+        }
+        create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
@@ -37,11 +53,11 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("appSigning")
+            signingConfig = signingConfigs.getByName("debugConfig")
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("appSigning")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
