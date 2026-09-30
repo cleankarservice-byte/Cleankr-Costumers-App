@@ -18,7 +18,5 @@ app/build/
 .cxx
 local.properties
 .env
-*.keystore
-!*.base64
-*.jks
+keystore.properties
 /public/downloads/

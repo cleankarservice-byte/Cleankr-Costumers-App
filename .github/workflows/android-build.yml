@@ -35,12 +35,19 @@ jobs:
         chmod +x ./gradlew
         touch .env
 
-        # Ensure debug keystore is ready for signing
+        # Ensure release keystore is ready for signing
+        if [ ! -f release.keystore ]; then
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+          elif [ -f release.keystore.base64 ]; then
+            base64 -d release.keystore.base64 > release.keystore
+          fi
+        fi
+
+        # Ensure debug keystore is ready
         if [ ! -f debug.keystore ]; then
           if [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
-          else
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
         fi
 
@@ -72,20 +79,34 @@ jobs:
         EOF
         fi
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
+    - name: Build Release AAB (Google Play Store Bundle)
+      env:
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || secrets.RELEASE_STORE_PASSWORD || 'cleankr2026' }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.RELEASE_KEY_ALIAS || 'cleankr_release' }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.RELEASE_KEY_PASSWORD || 'cleankr2026' }}
+      run: ./gradlew bundleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
 
-    - name: Build Debug AAB (Google Play Bundle)
-      run: ./gradlew bundleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
+    - name: Build Release APK
+      env:
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || secrets.RELEASE_STORE_PASSWORD || 'cleankr2026' }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.RELEASE_KEY_ALIAS || 'cleankr_release' }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.RELEASE_KEY_PASSWORD || 'cleankr2026' }}
+      run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" --stacktrace
+
+    - name: Verify Release Signature
+      run: |
+        keytool -printcert -jarfile app/build/outputs/bundle/release/app-release.aab | grep -E "Owner|SHA256"
 
     - name: Organize Artifacts
       run: |
         mkdir -p artifacts
-        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+        if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+          cp app/build/outputs/apk/release/app-release.apk artifacts/Cleankr-v1.0.apk
+        elif [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
           cp app/build/outputs/apk/debug/app-debug.apk artifacts/Cleankr-v1.0.apk
         fi
-        if [ -f app/build/outputs/bundle/debug/app-debug.aab ]; then
-          cp app/build/outputs/bundle/debug/app-debug.aab artifacts/Cleankr-v1.0.aab
+        if [ -f app/build/outputs/bundle/release/app-release.aab ]; then
+          cp app/build/outputs/bundle/release/app-release.aab artifacts/Cleankr-v1.0.aab
         fi
         ls -la artifacts/
 

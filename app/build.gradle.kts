@@ -1,4 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.FileInputStream
+import java.util.Base64
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -17,31 +20,52 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example"
+        applicationId = "com.aistudio.cleankrcustomer.kzqwm"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("release") {
+            val keystorePropsFile = file("${rootDir}/keystore.properties")
+            val keystoreProps = Properties()
+            if (keystorePropsFile.exists()) {
+                keystoreProps.load(FileInputStream(keystorePropsFile))
+            }
+
             val releaseKeystore = file("${rootDir}/release.keystore")
-            val keystorePath = System.getenv("KEYSTORE_PATH")
-            val storeFileTarget = if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
-                file(keystorePath)
+            val base64Keystore = file("${rootDir}/release.keystore.base64")
+            if (!releaseKeystore.exists() && base64Keystore.exists()) {
+                val decoded = Base64.getDecoder().decode(base64Keystore.readText().trim())
+                releaseKeystore.writeBytes(decoded)
+            }
+
+            val envKeystorePath = System.getenv("KEYSTORE_PATH")
+            val propKeystorePath = keystoreProps.getProperty("storeFile")
+            val storeFileTarget = if (!envKeystorePath.isNullOrBlank() && file(envKeystorePath).exists()) {
+                file(envKeystorePath)
+            } else if (!propKeystorePath.isNullOrBlank() && file("${rootDir}/$propKeystorePath").exists()) {
+                file("${rootDir}/$propKeystorePath")
             } else if (releaseKeystore.exists()) {
                 releaseKeystore
             } else {
-                file("${rootDir}/debug.keystore")
+                throw GradleException("FATAL: Production release keystore does NOT exist! Refusing to sign with debug key.")
             }
 
             storeFile = storeFileTarget
-            storePassword = System.getenv("STORE_PASSWORD") ?: "cleankr2026"
-            keyAlias = System.getenv("KEY_ALIAS") ?: "cleankr_release"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "cleankr2026"
+            storePassword = System.getenv("STORE_PASSWORD")
+                ?: keystoreProps.getProperty("storePassword")
+                ?: "cleankr2026"
+            keyAlias = System.getenv("KEY_ALIAS")
+                ?: keystoreProps.getProperty("keyAlias")
+                ?: "cleankr_release"
+            keyPassword = System.getenv("KEY_PASSWORD")
+                ?: keystoreProps.getProperty("keyPassword")
+                ?: "cleankr2026"
         }
         create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
